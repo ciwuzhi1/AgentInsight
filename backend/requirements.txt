@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+duckdb
+pandas
+openai
+redis
+python-multipart
+PyMySQL
+cryptography
+requests
+beautifulsoup4
+lxml
+pytest
+pytest-asyncio
+httpx

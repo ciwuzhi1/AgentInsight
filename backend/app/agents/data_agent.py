@@ -1,0 +1,148 @@
+"""DataAgent：画像 → 引擎路由 → NL2SQL/Spark → 组装 final_result（契约 §4/§6）。"""
+from __future__ import annotations
+
+import asyncio
+import datetime
+import re
+import time
+from decimal import Decimal
+
+from app.agents.base import AgentResult, BaseAgent, EmitFn
+from app.agent_runtime.state import TaskState
+from app.core.config import settings
+from app.core.llm import NL2SQL_SYSTEM_PROMPT, get_llm_client
+from app.data_engine.duckdb_engine import duckdb_engine
+from app.data_engine.profiler import profile_csv
+from app.data_engine.router import choose_engine
+from app.tools.schema_tool import format_schema_for_prompt
+from app.tools.spark_tool import run_skill_stats
+from app.tools.sql_tool import SQLGuardError, guard
+
+# 日期字符串前缀（如 2025-01-29 / 2025-01）
+_DATE_RE = re.compile(r"^\d{4}-\d{1,2}(-\d{1,2})?")
+
+
+def _is_date(v: object) -> bool:
+    """判断值是否为日期（date/datetime 或 ISO 日期字符串）。"""
+    if isinstance(v, (datetime.date, datetime.datetime)):
+        return True
+    return isinstance(v, str) and bool(_DATE_RE.match(v))
+
+
+def _is_number(v: object) -> bool:
+    """判断值是否为数值（bool 不算）。"""
+    return isinstance(v, (int, float, Decimal)) and not isinstance(v, bool)
+
+
+def build_chart(columns: list[str], rows: list[list]) -> dict | None:
+    """按契约 §6 规则构造图表配置；构不成图返回 None。
+
+    第一列为字符串/日期列作 x_field，其余数值列作 y_fields（最多 3 个）；
+    x 为日期列 → line，否则 bar。
+    """
+    if not columns or not rows or len(columns) < 2 or len(rows[0]) < 2:
+        return None
+    first = rows[0]
+    x_value = first[0]
+    if not (_is_date(x_value) or isinstance(x_value, str)):
+        return None
+    y_fields = [
+        columns[i]
+        for i in range(1, min(len(columns), 4))
+        if i < len(first) and _is_number(first[i])
+    ]
+    if not y_fields:
+        return None
+    return {
+        "type": "line" if _is_date(x_value) else "bar",
+        "x_field": columns[0],
+        "y_fields": y_fields,
+    }
+
+
+class DataAgent(BaseAgent):
+    """数据分析主 agent。"""
+
+    name = "data_agent"
+
+    async def run(self, state: TaskState, emit: EmitFn) -> AgentResult:
+        t0 = time.perf_counter()
+        ds = state.context.get("dataset") or {}
+        path = ds.get("path")
+        if not path:
+            return AgentResult(
+                status="error",
+                message_type="data_result",
+                data={},
+                errors=["缺少数据集元数据 state.context['dataset']"],
+            )
+
+        # 1. 画像 + 引擎路由
+        profile = await asyncio.to_thread(profile_csv, path)
+        engine = choose_engine(profile)
+        await emit(
+            {
+                "type": "engine",
+                "engine": engine,
+                "rows_estimate": profile.rows_estimate,
+                "reason": (
+                    f"行数 {profile.rows_estimate} "
+                    + (
+                        f">= 阈值 {settings.SPARK_ROW_THRESHOLD}，走 Spark"
+                        if engine == "spark"
+                        else f"低于阈值 {settings.SPARK_ROW_THRESHOLD}，走 DuckDB"
+                    )
+                ),
+            }
+        )
+
+        sql: str | None = None
+        explanation = "mock 规则生成"
+        if engine == "spark":
+            # Spark 分支：直接跑技能统计任务，不经 guard/NL2SQL
+            result = await run_skill_stats(path)
+            explanation = "数据量较大，已路由到 Spark 执行技能统计任务"
+        else:
+            # DuckDB 分支：注册视图 → schema → NL2SQL → guard → 执行
+            name = ds.get("name") or ""
+            schema = await asyncio.to_thread(
+                duckdb_engine.register_dataset, state.dataset_id or "", name, path
+            )
+            table = ds.get("table_name") or f"ds_{(state.dataset_id or '')[:8]}"
+            user_prompt = (
+                f"表名: {table}\n"
+                f"字段:\n{format_schema_for_prompt(schema)}\n"
+                f"用户问题: {state.query}\n"
+            )
+            llm_result = await get_llm_client().generate_json(NL2SQL_SYSTEM_PROMPT, user_prompt)
+            raw_sql = str(llm_result.get("sql") or "").strip()
+            explanation = str(llm_result.get("explanation") or "mock 规则生成")
+            ok, clean_sql, reason = guard(raw_sql, settings.SQL_MAX_ROWS)
+            if not ok:
+                raise SQLGuardError(f"SQL 未通过安全校验: {reason}")
+            sql = clean_sql
+            await emit({"type": "sql", "sql": sql, "explanation": explanation})
+            result = await duckdb_engine.execute(state.dataset_id or "", sql)
+
+        # 组装 §6 final_result
+        final = {
+            "task_id": state.task_id,
+            "query": state.query,
+            "engine": engine,
+            "sql": sql,
+            "explanation": explanation,
+            "columns": result.columns,
+            "rows": result.rows,
+            "row_count": result.row_count,
+            "truncated": result.truncated,
+            "chart": build_chart(result.columns, result.rows),
+            "elapsed_ms": int((time.perf_counter() - t0) * 1000),
+        }
+        data = {
+            "engine": engine,
+            "sql": sql,
+            "explanation": explanation,
+            "final": final,
+        }
+        state.results["data_agent"] = data
+        return AgentResult(status="ok", message_type="data_result", data=data)

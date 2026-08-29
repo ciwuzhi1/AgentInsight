@@ -1,0 +1,15 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: agentinsight-redis
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+# Spark 不常驻：由后端 SparkAdapter 按需 `docker run --rm ... spark-submit` 启动（文档 §62 原则）
+# MySQL 用本机已装的 8.0.26（D:\Development\software\MySql\MySql 8.0），不进容器

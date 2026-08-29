@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #020617; /* slate-950 */
+  color: #f1f5f9; /* slate-100 */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 细滚动条，深色主题下不突兀 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
+}

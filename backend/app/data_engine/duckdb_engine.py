@@ -1,0 +1,116 @@
+"""DuckDB 引擎：进程内把 CSV 注册为视图并执行只读 SQL（契约 §3.6）。
+
+视图命名约定：ds_{dataset_id 前 8 位}，与 CODE-4 API 层 table_name_for 一致。
+"""
+from __future__ import annotations
+
+import asyncio
+import time
+from pathlib import Path
+
+import duckdb
+
+from app.core.config import settings
+from app.core.logging import get_logger
+from app.data_engine.base import AnalysisEngine
+from app.data_engine.result import EngineResult
+
+logger = get_logger(__name__)
+
+
+class EngineError(Exception):
+    """DuckDB 注册或执行失败。"""
+
+
+def _posix(path: str) -> str:
+    """路径统一为正斜杠（read_csv_auto 需要）。"""
+    return str(Path(path)).replace("\\", "/")
+
+
+def _escape(path: str) -> str:
+    """SQL 字符串字面量内的单引号转义。"""
+    return path.replace("'", "''")
+
+
+def table_for(dataset_id: str) -> str:
+    """数据集对应的 DuckDB 视图名。"""
+    return f"ds_{dataset_id[:8]}"
+
+
+class DuckDBEngine(AnalysisEngine):
+    """每个 dataset_id 一个独立连接，视图按约定命名。"""
+
+    name = "duckdb"
+
+    def __init__(self) -> None:
+        self._conns: dict[str, duckdb.DuckDBPyConnection] = {}
+        self._tables: dict[str, str] = {}
+
+    def _conn(self, dataset_id: str) -> duckdb.DuckDBPyConnection:
+        conn = self._conns.get(dataset_id)
+        if conn is None:
+            conn = duckdb.connect()
+            self._conns[dataset_id] = conn
+        return conn
+
+    def register_dataset(self, dataset_id: str, name: str, path: str) -> dict:
+        """把 CSV 注册为视图并返回 schema；重复注册覆盖旧视图。"""
+        table = table_for(dataset_id)
+        sql = (
+            f"CREATE OR REPLACE VIEW {table} AS "
+            f"SELECT * FROM read_csv_auto('{_escape(_posix(path))}', header=true)"
+        )
+        try:
+            conn = self._conn(dataset_id)
+            conn.execute(sql)
+        except Exception as exc:
+            raise EngineError(f"注册数据集失败 {dataset_id}: {exc}") from exc
+        self._tables[dataset_id] = table
+        logger.info("数据集已注册 dataset=%s table=%s path=%s", dataset_id, table, path)
+        return self.get_schema(dataset_id)
+
+    def get_schema(self, dataset_id: str) -> list[dict]:
+        """DESCRIBE 视图得到 [{"name","type"}]。"""
+        table = self._tables.get(dataset_id) or table_for(dataset_id)
+        conn = self._conns.get(dataset_id)
+        if conn is None:
+            raise EngineError(f"数据集未注册: {dataset_id}")
+        try:
+            rows = conn.execute(f"DESCRIBE {table}").fetchall()
+        except Exception as exc:
+            raise EngineError(f"读取 schema 失败 {dataset_id}: {exc}") from exc
+        return [{"name": r[0], "type": r[1]} for r in rows]
+
+    async def execute(self, dataset_id: str, sql: str) -> EngineResult:
+        """异步执行 SQL：fetch SQL_MAX_ROWS+1 行判断 truncated。"""
+        return await asyncio.to_thread(self._execute_sync, dataset_id, sql)
+
+    def _execute_sync(self, dataset_id: str, sql: str) -> EngineResult:
+        conn = self._conns.get(dataset_id)
+        if conn is None:
+            raise EngineError(f"数据集未注册: {dataset_id}")
+        t0 = time.perf_counter()
+        try:
+            cur = conn.execute(sql)
+            columns = [d[0] for d in cur.description or []]
+            rows = cur.fetchmany(settings.SQL_MAX_ROWS + 1)
+        except Exception as exc:
+            raise EngineError(f"SQL 执行失败: {exc}") from exc
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        truncated = len(rows) > settings.SQL_MAX_ROWS
+        rows = [list(r) for r in rows[: settings.SQL_MAX_ROWS]]
+        # 未截断时行数即总数；截断时总数未知
+        total_rows = len(rows) if not truncated else None
+        return EngineResult(
+            columns=columns,
+            rows=rows,
+            row_count=len(rows),
+            total_rows=total_rows,
+            truncated=truncated,
+            elapsed_ms=elapsed_ms,
+            engine="duckdb",
+        )
+
+
+# 模块级单例
+duckdb_engine = DuckDBEngine()

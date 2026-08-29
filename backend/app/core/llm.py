@@ -1,0 +1,171 @@
+"""LLM 客户端：OpenAI 兼容实现 + mock 规则版 NL2SQL（契约 §10）。"""
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+from abc import ABC, abstractmethod
+
+from app.core.config import settings
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class LLMError(Exception):
+    """LLM 调用或 JSON 解析失败。"""
+
+
+# NL2SQL system prompt：只输出 JSON、单条只读 SELECT、用给定 schema、必须带 LIMIT
+NL2SQL_SYSTEM_PROMPT = (
+    "你是数据分析助手，把用户的中文问题转成一条 DuckDB SQL。要求：\n"
+    "1. 只输出一个 JSON 对象，格式为 {\"sql\": \"...\", \"explanation\": \"一句话中文说明\"}，"
+    "不要输出任何其他文字或代码块标记。\n"
+    "2. 只允许一条 SELECT 语句，只读，禁止 INSERT/UPDATE/DELETE/DDL 等任何写操作。\n"
+    "3. 只能使用给定的表名和 schema 中的列名，不要编造列。\n"
+    "4. 中文列值（如地区名、商品名）不需要翻译，直接匹配原值。\n"
+    "5. 聚合结果必须加 LIMIT（如 LIMIT 1000），排序默认按指标降序。\n"
+    "6. 日期列可直接用年份/月份函数（如 year(order_date)、month(order_date)）。"
+)
+
+
+class BaseLLMClient(ABC):
+    """LLM 客户端统一接口。"""
+
+    @abstractmethod
+    async def generate_json(self, system: str, user: str) -> dict:
+        """调用 LLM 并解析为 dict；失败抛 LLMError。"""
+
+
+class OpenAICompatibleClient(BaseLLMClient):
+    """OpenAI 兼容 chat completions（deepseek/glm 等），强制 JSON 输出。"""
+
+    def __init__(self) -> None:
+        from openai import AsyncOpenAI
+
+        self._client = AsyncOpenAI(
+            base_url=settings.LLM_BASE_URL or None,
+            api_key=settings.LLM_API_KEY,
+            timeout=60,
+        )
+
+    async def generate_json(self, system: str, user: str) -> dict:
+        """请求 JSON 输出，解析失败重试 1 次，仍失败抛 LLMError。"""
+        last_err: Exception | None = None
+        for attempt in range(2):
+            try:
+                resp = await self._client.chat.completions.create(
+                    model=settings.LLM_MODEL,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0,
+                )
+                content = resp.choices[0].message.content or ""
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    return data
+                last_err = LLMError(f"LLM 返回非 JSON 对象: {type(data).__name__}")
+            except Exception as exc:  # 网络/解析失败统一重试一次
+                last_err = exc
+                logger.warning("LLM 调用失败(第 %d 次): %s", attempt + 1, exc)
+            await asyncio.sleep(0.2)
+        raise LLMError(f"LLM 调用失败: {last_err}") from last_err
+
+
+# 中文口语列名 → demo_sales.csv 列名
+_COL_MAP = {
+    "地区": "region", "区域": "region",
+    "商品": "product", "产品": "product",
+    "品类": "category", "类别": "category", "分类": "category",
+    "日期": "order_date", "月份": "order_date", "时间": "order_date",
+}
+# 口语指标 → 列名
+_METRIC_MAP = {
+    "销售额": "sales", "销售": "sales", "sales": "sales",
+    "销量": "quantity", "数量": "quantity", "quantity": "quantity",
+}
+
+
+class MockLLMClient(BaseLLMClient):
+    """规则版 NL2SQL（无 key 时降级使用），针对 demo_sales.csv。"""
+
+    async def generate_json(self, system: str, user: str) -> dict:
+        await asyncio.sleep(0)  # 保持 async 语义
+        return self._rule_sql(user)
+
+    def _rule_sql(self, user: str) -> dict:
+        table = "ds_demo"
+        m = re.search(r"表名[:：]\s*(\S+)", user)
+        if m:
+            table = m.group(1)
+        # 用户问题行；没有该行则用全文匹配
+        qm = re.search(r"用户问题[:：]\s*(.+)", user)
+        query = qm.group(1).strip() if qm else user
+
+        limit = settings.SQL_MAX_ROWS
+        sql, explanation = None, "mock 规则生成"
+
+        # "按{列}统计..."
+        group_m = re.search(r"按([\u4e00-\u9fa5A-Za-z_]+?)统计", query)
+        group_col = None
+        if group_m:
+            word = group_m.group(1)
+            group_col = _COL_MAP.get(word, word)
+
+        # 指标列
+        metric = None
+        for key, col in _METRIC_MAP.items():
+            if key in query.lower() or key in query:
+                metric = col
+                break
+
+        top_m = re.search(r"[Tt]op\s*(\d+)", query)
+        is_avg = "平均" in query
+        is_sum = ("总计" in query) or ("总" in query) or ("和" in query)
+
+        if group_col and metric:
+            if is_avg:
+                agg, alias, cn = f"AVG({metric})", f"avg_{metric}", "平均"
+            else:
+                agg, alias, cn = f"SUM({metric})", f"total_{metric}", "总计"
+            sql = (
+                f"SELECT {group_col}, {agg} AS {alias} FROM {table} "
+                f"GROUP BY {group_col} ORDER BY {alias} DESC LIMIT {limit}"
+            )
+            explanation = f"mock 规则生成：按 {group_col} 统计{cn}{metric}"
+        elif metric and (is_avg or is_sum):
+            # 无分组的整体聚合
+            if is_avg:
+                agg, alias, cn = f"AVG({metric})", f"avg_{metric}", "平均"
+            else:
+                agg, alias, cn = f"SUM({metric})", f"total_{metric}", "总计"
+            sql = f"SELECT {agg} AS {alias} FROM {table} LIMIT 1"
+            explanation = f"mock 规则生成：{cn}{metric}"
+        elif top_m:
+            # Top n：默认按商品销量/销售额排序
+            n = min(int(top_m.group(1)), limit)
+            metric = metric or "sales"
+            sql = (
+                f"SELECT product, SUM({metric}) AS total_{metric} FROM {table} "
+                f"GROUP BY product ORDER BY total_{metric} DESC LIMIT {n}"
+            )
+            explanation = f"mock 规则生成：{metric} Top {n} 的商品"
+        elif "最近" in query:
+            sql = f"SELECT * FROM {table} ORDER BY order_date DESC LIMIT 10"
+            explanation = "mock 规则生成：最近 10 条记录"
+        else:
+            sql = f"SELECT * FROM {table} LIMIT 100"
+
+        return {"sql": sql, "explanation": explanation}
+
+
+def get_llm_client() -> BaseLLMClient:
+    """工厂：provider=mock 或 key 缺失/占位时降级 Mock，并告警。"""
+    key = (settings.LLM_API_KEY or "").strip()
+    if settings.LLM_PROVIDER == "mock" or not key or "填" in key:
+        logger.warning("LLM 未配置有效 key（provider=%s），降级为 MockLLMClient", settings.LLM_PROVIDER)
+        return MockLLMClient()
+    return OpenAICompatibleClient()
