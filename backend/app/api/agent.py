@@ -6,14 +6,17 @@ import json
 import time
 from typing import AsyncIterator
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.agent_runtime.registry import registry
 from app.agent_runtime.state import TaskState
 from app.agent_runtime.supervisor import Supervisor
+from app.api.auth import UserCtx, get_current_user
 from app.api.datasets import table_name_for
+from app.cache.keys import text_hash
+from app.cache.redis import acquire_lock, release_lock
 from app.core.logging import get_logger
 from app.persistence.mysql import (
     get_dataset,
@@ -152,6 +155,50 @@ def _step_seq(task_id: str, step_id: str) -> int:
     return seq[step_id]
 
 
+# ---------- 任务幂等锁（CONTRACTS3 §1.5） ----------
+
+# SET NX EX 300：执行中任务重复提交 → 409 + 既有 task_id
+_LOCK_TTL_S = 300
+# task_id -> lock key；_run 终结时统一 DEL（含异常/取消路径）
+_PENDING_LOCKS: dict[str, str] = {}
+
+
+def _tasks_lock_key(body: "TaskCreateRequest") -> str:
+    """锁 key：请求体内容（dataset_id/query）哈希。"""
+    return f"agent:lock:{text_hash(f'dataset_id={body.dataset_id}', f'query={body.query}')}"
+
+
+def _matches_lock_key(resume_id: str, job_ids: list[int]) -> str:
+    """锁 key：resume_id + 排序去重后的 job_ids 哈希。"""
+    ids = ",".join(str(i) for i in sorted(set(job_ids)))
+    return f"agent:lock:{text_hash(f'resume_id={resume_id}', f'job_ids={ids}')}"
+
+
+def register_task_lock(task_id: str, lock_key: str) -> None:
+    """登记幂等锁（/api/tasks 与 /api/matches 两入口共用）；_run 终结时 DEL。"""
+    _PENDING_LOCKS[task_id] = lock_key
+
+
+# ---------- 任务属主（CONTRACTS3 §3.4） ----------
+
+# task_id -> owner user_id（None=公共遗留/旧任务，任何登录用户可见）。
+# Bus 与属主表均为进程内存：get_task / SSE 订阅先验 bus.exists，故重启后自然 404，
+# 无需回源 DB。
+_TASK_OWNERS: dict[str, str | None] = {}
+
+
+def register_task_owner(task_id: str, user_id: str | None) -> None:
+    """登记任务属主（/api/tasks 与 /api/matches 两入口共用）。"""
+    _TASK_OWNERS[task_id] = user_id
+
+
+def ensure_task_visible(task_id: str, user: UserCtx) -> None:
+    """读路径隔离：owner ∈ {None, 当前用户} 才可见，否则 404（不泄露存在性）。"""
+    owner = _TASK_OWNERS.get(task_id)
+    if owner is not None and owner != user.user_id:
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+
+
 # ---------- 模型与工具 ----------
 
 class TaskCreateRequest(BaseModel):
@@ -196,14 +243,17 @@ def _register_agents() -> None:
 # ---------- 路由 ----------
 
 @router.post("")
-async def create_task(body: TaskCreateRequest) -> dict:
-    """创建任务并后台启动 run_task。"""
+async def create_task(body: TaskCreateRequest, user: UserCtx = Depends(get_current_user)) -> dict:
+    """创建任务并后台启动 run_task（登录必须；任务归属当前用户）。"""
     try:
         ds = await asyncio.to_thread(get_dataset, body.dataset_id)
     except Exception as exc:
         logger.warning("数据集查询失败 dataset=%s: %s", body.dataset_id, exc)
         ds = None
     if not ds:
+        raise HTTPException(status_code=404, detail=f"数据集不存在: {body.dataset_id}")
+    # 数据隔离（CONTRACTS3 §3.4）：公共遗留(user_id=NULL)或本人数据才可用
+    if ds.get("user_id") is not None and ds["user_id"] != user.user_id:
         raise HTTPException(status_code=404, detail=f"数据集不存在: {body.dataset_id}")
 
     state = TaskState(dataset_id=body.dataset_id, query=body.query)
@@ -215,8 +265,22 @@ async def create_task(body: TaskCreateRequest) -> dict:
         "schema": ds.get("schema_json") or [],
     }
 
+    # 幂等锁：SET NX EX 300；未获得（重复提交执行中任务）→ 409 + 既有 task_id。
+    # Redis 不可用 → acquire_lock 降级放行，照常创建。
+    lock_key = _tasks_lock_key(body)
+    acquired, existing = await acquire_lock(lock_key, state.task_id, _LOCK_TTL_S)
+    if not acquired:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "相同任务正在执行中", "task_id": existing},
+        )
+    register_task_lock(state.task_id, lock_key)
+    register_task_owner(state.task_id, user.user_id)
+
     try:
-        await asyncio.to_thread(insert_task, state.task_id, state.dataset_id, state.query)
+        await asyncio.to_thread(
+            insert_task, state.task_id, state.dataset_id, state.query, "created", user.user_id
+        )
     except Exception as exc:
         # 落库失败不阻断分析，只告警
         logger.warning("任务落库失败 task=%s: %s", state.task_id, exc)
@@ -229,7 +293,11 @@ async def create_task(body: TaskCreateRequest) -> dict:
 
 
 async def _run(state: TaskState) -> None:
-    """后台执行：emit 桥接 SSE 与落库，再交给 Supervisor 编排。"""
+    """后台执行：emit 桥接 SSE 与落库，再交给 Supervisor 编排。
+
+    幂等锁在此终结：finally 覆盖 completed / failed_final / 异常 / 取消全部路径。
+    """
+    lock_key = _PENDING_LOCKS.pop(state.task_id, None)
 
     async def emit(event: dict) -> None:
         await bus.publish(state.task_id, event)
@@ -247,6 +315,10 @@ async def _run(state: TaskState) -> None:
             await emit({"type": "error", "code": "ENGINE_ERROR", "message": str(exc)})
         except Exception:
             pass
+    finally:
+        # 任务终结（completed/failed_final/异常/取消）统一 DEL 幂等锁
+        if lock_key:
+            await release_lock(lock_key)
 
 
 async def _persist_event(state: TaskState, event: dict) -> None:
@@ -319,16 +391,18 @@ async def _insert_match(task_id: str, result: dict) -> None:
             job_ids,
             result.get("score"),
             result,
+            _TASK_OWNERS.get(task_id),  # 属主（None=公共遗留）
         )
     except Exception as exc:
         logger.warning("匹配结果落库失败 task=%s: %s", task_id, exc)
 
 
 @router.get("/{task_id}")
-async def get_task(task_id: str) -> dict:
-    """从 Bus 事件回放拼装任务详情。"""
+async def get_task(task_id: str, user: UserCtx = Depends(get_current_user)) -> dict:
+    """从 Bus 事件回放拼装任务详情（登录必须 + 属主隔离）。"""
     if not bus.exists(task_id):
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    ensure_task_visible(task_id, user)
 
     status = "created"
     engine: str | None = None
@@ -362,10 +436,13 @@ async def get_task(task_id: str) -> dict:
 
 
 @router.get("/{task_id}/events")
-async def task_events(task_id: str, request: Request) -> StreamingResponse:
-    """SSE 事件流：每事件 data: {json}\\n\\n，自然结束补 event: done。"""
+async def task_events(
+    task_id: str, request: Request, user: UserCtx = Depends(get_current_user)
+) -> StreamingResponse:
+    """SSE 事件流：每事件 data: {json}\\n\\n，自然结束补 event: done（登录必须 + 属主隔离）。"""
     if not bus.exists(task_id):
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    ensure_task_visible(task_id, user)
 
     async def stream() -> AsyncIterator[str]:
         try:

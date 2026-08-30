@@ -67,19 +67,20 @@ def insert_dataset(
     rows_estimate: int,
     size_bytes: int,
     schema: Any,
+    user_id: str | None = None,
 ) -> None:
-    """上传成功后登记数据集元数据。"""
+    """上传成功后登记数据集元数据（user_id 为空表示公共遗留，任何登录用户可见）。"""
     sql = (
-        "INSERT INTO datasets (id, name, path, rows_estimate, size_bytes, schema_json) "
-        "VALUES (%s, %s, %s, %s, %s, %s)"
+        "INSERT INTO datasets (id, name, path, rows_estimate, size_bytes, schema_json, user_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)"
     )
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, (dataset_id, name, path, rows_estimate, size_bytes, _dump(schema)))
+        cur.execute(sql, (dataset_id, name, path, rows_estimate, size_bytes, _dump(schema), user_id))
 
 
 def get_dataset(dataset_id: str) -> dict | None:
-    """按 id 查数据集；schema_json 已反序列化。"""
-    sql = "SELECT id, name, path, rows_estimate, size_bytes, schema_json, created_at FROM datasets WHERE id = %s"
+    """按 id 查数据集；schema_json 已反序列化（user_id 由 API 层做隔离校验）。"""
+    sql = "SELECT id, name, path, rows_estimate, size_bytes, schema_json, user_id, created_at FROM datasets WHERE id = %s"
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(sql, (dataset_id,))
         row = cur.fetchone()
@@ -91,11 +92,17 @@ def get_dataset(dataset_id: str) -> dict | None:
 
 # ---------- tasks ----------
 
-def insert_task(task_id: str, dataset_id: str | None, query: str, status: str = "created") -> None:
-    """任务创建时落一条记录。"""
-    sql = "INSERT INTO tasks (id, dataset_id, query, status) VALUES (%s, %s, %s, %s)"
+def insert_task(
+    task_id: str,
+    dataset_id: str | None,
+    query: str,
+    status: str = "created",
+    user_id: str | None = None,
+) -> None:
+    """任务创建时落一条记录（user_id 为空表示公共遗留）。"""
+    sql = "INSERT INTO tasks (id, dataset_id, query, status, user_id) VALUES (%s, %s, %s, %s, %s)"
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, (task_id, dataset_id, query, status))
+        cur.execute(sql, (task_id, dataset_id, query, status, user_id))
 
 
 def update_task(
@@ -211,20 +218,20 @@ def fetch_jobs_for_export() -> list[dict]:
 
 # ---------- resumes（简历，CONTRACTS2 §4.2）----------
 
-def save_resume(resume_id: str, filename: str, path: str, profile: dict) -> None:
-    """登记简历（上传时 profile 传空占位，解析成功后覆写）。"""
+def save_resume(resume_id: str, filename: str, path: str, profile: dict, user_id: str | None = None) -> None:
+    """登记简历（上传时 profile 传空占位，解析成功后覆写；user_id 为空表示公共遗留）。"""
     sql = (
-        "INSERT INTO resumes (id, filename, path, profile_json) VALUES (%s, %s, %s, %s) "
+        "INSERT INTO resumes (id, filename, path, profile_json, user_id) VALUES (%s, %s, %s, %s, %s) "
         "ON DUPLICATE KEY UPDATE filename = VALUES(filename), path = VALUES(path), "
-        "profile_json = VALUES(profile_json)"
+        "profile_json = VALUES(profile_json), user_id = VALUES(user_id)"
     )
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, (resume_id, filename, path, _dump(profile)))
+        cur.execute(sql, (resume_id, filename, path, _dump(profile), user_id))
 
 
 def get_resume(resume_id: str) -> dict | None:
-    """按 id 查简历；profile_json 已反序列化。"""
-    sql = "SELECT id, filename, path, profile_json, created_at FROM resumes WHERE id = %s"
+    """按 id 查简历；profile_json 已反序列化（user_id 由 API 层做隔离校验）。"""
+    sql = "SELECT id, filename, path, profile_json, user_id, created_at FROM resumes WHERE id = %s"
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(sql, (resume_id,))
         row = cur.fetchone()
@@ -236,14 +243,44 @@ def get_resume(resume_id: str) -> dict | None:
 
 # ---------- matches（匹配结果）----------
 
-def insert_match(task_id: str, resume_id: str | None, job_ids: list, score, detail: dict) -> None:
+def insert_match(
+    task_id: str,
+    resume_id: str | None,
+    job_ids: list,
+    score,
+    detail: dict,
+    user_id: str | None = None,
+) -> None:
     """匹配任务 final 事件落一条结果（api/agent.py 钩子调用，签名见 §5.1）。"""
     sql = (
-        "INSERT INTO matches (task_id, resume_id, job_ids_json, score, detail_json) "
-        "VALUES (%s, %s, %s, %s, %s)"
+        "INSERT INTO matches (task_id, resume_id, job_ids_json, score, detail_json, user_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s)"
     )
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, (task_id, resume_id, _dump(list(job_ids or [])), score, _dump(detail)))
+        cur.execute(sql, (task_id, resume_id, _dump(list(job_ids or [])), score, _dump(detail), user_id))
+
+
+# ---------- users（CONTRACTS3 §3.1）----------
+
+def create_user(user_id: str, username: str, password_hash: str) -> bool:
+    """注册用户；用户名唯一键冲突返回 False（其余异常向上抛）。"""
+    sql = "INSERT INTO users (id, username, password_hash) VALUES (%s, %s, %s)"
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute(sql, (user_id, username, password_hash))
+    except pymysql.err.IntegrityError as exc:
+        if exc.args and exc.args[0] == 1062:  # Duplicate entry
+            return False
+        raise
+    return True
+
+
+def get_user_by_username(username: str) -> dict | None:
+    """按用户名查用户（登录用）；无则 None。"""
+    sql = "SELECT id, username, password_hash, created_at FROM users WHERE username = %s"
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, (username,))
+        return cur.fetchone()
 
 
 # ---------- jobs 按 id 查（匹配链路用）----------

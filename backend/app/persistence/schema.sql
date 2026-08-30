@@ -6,7 +6,9 @@ CREATE TABLE IF NOT EXISTS datasets (
   rows_estimate BIGINT NOT NULL DEFAULT 0,
   size_bytes BIGINT NOT NULL DEFAULT 0,
   schema_json JSON NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  user_id VARCHAR(36) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_datasets_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -20,7 +22,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   error TEXT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   completed_at DATETIME NULL,
-  KEY idx_tasks_status (status)
+  user_id VARCHAR(36) NULL,
+  KEY idx_tasks_status (status),
+  KEY idx_tasks_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS task_steps (
@@ -69,7 +73,9 @@ CREATE TABLE IF NOT EXISTS resumes (
   filename VARCHAR(255),
   path VARCHAR(512),
   profile_json JSON,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  user_id VARCHAR(36) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_resumes_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS matches (
@@ -79,8 +85,10 @@ CREATE TABLE IF NOT EXISTS matches (
   job_ids_json JSON,
   score INT,
   detail_json JSON,
+  user_id VARCHAR(36) NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  KEY idx_matches_task (task_id)
+  KEY idx_matches_task (task_id),
+  KEY idx_matches_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS model_configs (
@@ -100,6 +108,16 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value TEXT,
   is_secret TINYINT(1) DEFAULT 0,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ===== 阶段3 增量（CONTRACTS3 §3.1）：用户与数据隔离 =====
+-- user_id 为 NULL 的存量数据视为"公共遗留"，任何已登录用户可见；新写入必带 user_id。
+
+CREATE TABLE IF NOT EXISTS users (
+  id VARCHAR(36) PRIMARY KEY,
+  username VARCHAR(64) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 内置默认设置（INSERT IGNORE：只在缺行时插入，不覆盖已有值）

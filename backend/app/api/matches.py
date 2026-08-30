@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.agent_runtime.state import TaskState
-from app.api.agent import _run, bus
+from app.api.agent import _matches_lock_key, _run, bus, register_task_lock, register_task_owner
+from app.api.auth import UserCtx, get_current_user
+from app.cache.redis import acquire_lock
 from app.core.logging import get_logger
 from app.persistence.mysql import get_jobs_by_ids, get_resume, insert_task
 
@@ -25,13 +28,18 @@ class MatchCreateRequest(BaseModel):
 
 
 @router.post("")
-async def create_match(body: MatchCreateRequest) -> dict:
-    """创建匹配任务：校验 resume/jobs 后交 Supervisor 多 Agent 执行。"""
+async def create_match(
+    body: MatchCreateRequest, user: UserCtx = Depends(get_current_user)
+) -> dict:
+    """创建匹配任务：校验 resume/jobs 后交 Supervisor 多 Agent 执行（登录必须，归属当前用户）。"""
     if not body.job_ids:
         raise HTTPException(status_code=400, detail="job_ids 不能为空")
 
     resume = await asyncio.to_thread(get_resume, body.resume_id)
     if resume is None:
+        raise HTTPException(status_code=404, detail=f"简历不存在: {body.resume_id}")
+    # 数据隔离（CONTRACTS3 §3.4）：公共遗留(user_id=NULL)或本人简历才可用
+    if resume.get("user_id") is not None and resume["user_id"] != user.user_id:
         raise HTTPException(status_code=404, detail=f"简历不存在: {body.resume_id}")
 
     job_ids = list(dict.fromkeys(body.job_ids))  # 去重保序
@@ -52,8 +60,21 @@ async def create_match(body: MatchCreateRequest) -> dict:
         "query": state.query,
     }
 
+    # 幂等锁（CONTRACTS3 §1.5）：SET NX EX 300；重复提交执行中任务 → 409 + 既有 task_id
+    lock_key = _matches_lock_key(body.resume_id, body.job_ids)
+    acquired, existing = await acquire_lock(lock_key, state.task_id)
+    if not acquired:
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "相同任务正在执行中", "task_id": existing},
+        )
+    register_task_lock(state.task_id, lock_key)
+    register_task_owner(state.task_id, user.user_id)
+
     try:
-        await asyncio.to_thread(insert_task, state.task_id, None, state.query)
+        await asyncio.to_thread(
+            insert_task, state.task_id, None, state.query, "created", user.user_id
+        )
     except Exception as exc:
         # 落库失败不阻断任务，只告警
         logger.warning("匹配任务落库失败 task=%s: %s", state.task_id, exc)

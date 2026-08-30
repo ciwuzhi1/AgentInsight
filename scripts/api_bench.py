@@ -67,6 +67,25 @@ def sse_latency(client: httpx.Client, path: str, timeout: float = 30.0) -> tuple
     return first_ms or -1, final_ms or -1, final_result
 
 
+def register_and_login(client: httpx.Client) -> None:
+    """注册+登录拿 token（CONTRACTS3 §3.4）：受保护接口全部带 Authorization；
+    用户名按时间戳唯一，重名（409）直接登录。开放接口不受影响。"""
+    username = f"bench_{int(time.time() * 1000)}"
+    password = "bench-p4-123"
+    r = client.post("/api/auth/register", json={"username": username, "password": password})
+    if r.status_code == 409:
+        # 极小概率时间戳撞名：追加随机后缀重试一次
+        username = f"{username[:20]}{int(time.time() * 1000) % 10000}"
+        r = client.post("/api/auth/register", json={"username": username, "password": password})
+    if r.status_code != 201:
+        raise SystemExit(f"bench 注册失败: {r.status_code} {r.text[:200]}")
+    r = client.post("/api/auth/login", json={"username": username, "password": password})
+    assert r.status_code == 200, f"bench 登录失败: {r.status_code} {r.text[:200]}"
+    token = r.json()["token"]
+    client.headers["Authorization"] = f"Bearer {token}"
+    print(f"[auth] 已注册并登录 username={username}（受保护请求统一带 Bearer token）")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=10)
@@ -74,6 +93,9 @@ def main() -> None:
     args = ap.parse_args()
     n = args.n
     client = httpx.Client(base_url=args.base, timeout=30)
+
+    # L0 认证：注册+登录拿 token（健康检查等开放接口不带 token 也照常测）
+    register_and_login(client)
 
     # L1 可用性
     for path, name in [("/api/health", "GET /api/health"),

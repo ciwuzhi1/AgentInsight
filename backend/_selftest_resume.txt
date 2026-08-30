@@ -1,0 +1,5 @@
+李四
+Python 后端工程师，5 年工作经验
+学历：硕士
+熟悉 Python、Docker、Redis、FastAPI
+项目：数据平台建设，负责实时链路与存储

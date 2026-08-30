@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # Redis（挂了系统自动降级）
     REDIS_URL: str = "redis://127.0.0.1:6379/0"
 
+    # CORS 白名单（逗号分隔来源；main.py split 后传入，CONTRACTS3 §3.4）
+    CORS_ORIGINS: str = "http://localhost:3100,http://127.0.0.1:3100"
+
     # Agent Runtime
     MAX_AGENT_STEPS: int = 8
     MAX_RETRY: int = 2

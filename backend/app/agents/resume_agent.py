@@ -3,6 +3,9 @@
 解析链：PDF → mineru_api（配置了 token 且 parser_backend=mineru_api）→ 失败/未配置
 降级 pymupdf 文本层；DOCX → python-docx 段落；TXT → 直读。所有阻塞调用经
 asyncio.to_thread。落库 save_resume 延迟导入（A4 同波交付，失败仅告警不阻断）。
+
+CONTRACTS3 §1.4：最外层 cache-aside——文件字节指纹 → Redis；HIT 时 0 次解析、
+0 次 LLM，data 加 "cache":"hit"；MISS 走原路径后写缓存，data 加 "cache":"miss"。
 """
 from __future__ import annotations
 
@@ -12,9 +15,22 @@ from pathlib import Path
 
 from app.agents.base import AgentResult, BaseAgent, EmitFn
 from app.agent_runtime.state import TaskState
+from app.cache.keys import resume_key, text_hash
+from app.cache.policies import TTL_RESUME
+from app.cache.redis import get_json, set_json
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+async def _safe_emit(emit: EmitFn | None, event: dict) -> None:
+    """emit 容错：兼容同步/异步 emit，任何异常吞掉（cache 事件不阻断主链路）。"""
+    try:
+        out = emit(event)  # type: ignore[operator]
+        if asyncio.iscoroutine(out):
+            await out
+    except Exception:
+        pass
 
 # LLM 结构化抽取的 system prompt：只输出一个 JSON 画像对象
 RESUME_PROFILE_SYSTEM_PROMPT = (
@@ -196,39 +212,68 @@ class ResumeAgent(BaseAgent):
                 errors=[f"简历文件不存在: {path}"],
             )
 
-        # 1. 抽取文本（MinerU / pymupdf / docx / txt）
-        text, backend = await _extract_text(str(path))
-        if not text.strip():
-            return AgentResult(
-                status="error",
-                message_type="resume_profile",
-                data={"resume_id": resume_id, "filename": filename},
-                errors=["简历解析结果为空文本"],
+        # 0. cache-aside（CONTRACTS3 §1.4）：文件字节指纹（不解析）→ Redis。
+        #    HIT 直接用缓存画像，0 次文件解析 + 0 次 LLM。
+        raw_bytes = await asyncio.to_thread(Path(str(path)).read_bytes)
+        key = resume_key(text_hash(raw_bytes.decode("latin-1")))
+        cached = await get_json(key)
+        hit = isinstance(cached, dict) and isinstance(cached.get("profile"), dict)
+        await _safe_emit(emit, {"type": "cache", "hit": hit, "key": key})
+
+        if hit:
+            profile = cached["profile"]
+            text_chars = int(cached.get("text_chars") or 0)
+            backend = str(cached.get("parse_backend") or "cache")
+            source = str(cached.get("profile_source") or "cache")
+            cache_state = "hit"
+        else:
+            # 1. 抽取文本（MinerU / pymupdf / docx / txt）
+            text, backend = await _extract_text(str(path))
+            if not text.strip():
+                return AgentResult(
+                    status="error",
+                    message_type="resume_profile",
+                    data={"resume_id": resume_id, "filename": filename},
+                    errors=["简历解析结果为空文本"],
+                )
+            text_chars = len(text)
+            cache_state = "miss"
+
+            # 2. LLM 结构化（mock/失败 → 规则兜底）
+            client = None
+            try:
+                from app.core.llm import get_llm_client
+
+                client = get_llm_client()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("获取 LLM 客户端失败，走规则画像: %s", exc)
+            if client is not None and not _is_mock_client(client):
+                try:
+                    profile = _coerce_profile(
+                        await client.generate_json(
+                            RESUME_PROFILE_SYSTEM_PROMPT, text[:_MAX_LLM_TEXT]
+                        )
+                    )
+                    source = "llm"
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("简历结构化 LLM 失败，走规则画像: %s", exc)
+                    profile, source = _rule_profile(text), "mock"
+            else:
+                profile, source = _rule_profile(text), "mock"
+
+            # 写缓存（失败静默，不影响主链路）
+            await set_json(
+                key,
+                {
+                    "profile": profile,
+                    "text_chars": text_chars,
+                    "parse_backend": backend,
+                    "profile_source": source,
+                },
+                TTL_RESUME,
             )
 
-        # 2. LLM 结构化（mock/失败 → 规则兜底）
-        client = None
-        try:
-            from app.core.llm import get_llm_client
-
-            client = get_llm_client()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("获取 LLM 客户端失败，走规则画像: %s", exc)
-        if client is not None and not _is_mock_client(client):
-            try:
-                profile = _coerce_profile(
-                    await client.generate_json(
-                        RESUME_PROFILE_SYSTEM_PROMPT, text[:_MAX_LLM_TEXT]
-                    )
-                )
-                source = "llm"
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("简历结构化 LLM 失败，走规则画像: %s", exc)
-                profile, source = _rule_profile(text), "mock"
-        else:
-            profile, source = _rule_profile(text), "mock"
-
-        # 3. 落库（A4 提供 save_resume，失败仅告警不阻断）
+        # 3. 落库（A4 提供 save_resume，失败仅告警不阻断；HIT/MISS 都落，持久化行为不变）
         try:
             from app.persistence.mysql import save_resume
 
@@ -240,9 +285,10 @@ class ResumeAgent(BaseAgent):
             "resume_id": resume_id,
             "filename": filename,
             "profile": profile,
-            "text_chars": len(text),
+            "text_chars": text_chars,
             "parse_backend": backend,
             "profile_source": source,
+            "cache": cache_state,
         }
         state.results["resume_agent"] = data
         return AgentResult(status="ok", message_type="resume_profile", data=data)

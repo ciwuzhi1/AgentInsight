@@ -3,16 +3,33 @@
 输入：state.context["jobs"]（API 按 job_ids 查好）或 context["jd_text"]。
 LLM 结构化 {jobs:[{id,title,must_have,nice_to_have,skills}],level}；
 mock 路径直接用 skills 逗号串拆分 + extract_skills(description) 关键词。
+
+CONTRACTS3 §1.4：最外层 cache-aside——所有 JD 的 title+description 拼接 hash
+→ Redis；HIT 直接用缓存画像（id/company 按当前输入重映射），MISS 走原路径后写缓存。
 """
 from __future__ import annotations
 
+import asyncio
 import re
 
 from app.agents.base import AgentResult, BaseAgent, EmitFn
 from app.agent_runtime.state import TaskState
+from app.cache.keys import job_key, text_hash
+from app.cache.policies import TTL_JOB
+from app.cache.redis import get_json, set_json
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+async def _safe_emit(emit: EmitFn | None, event: dict) -> None:
+    """emit 容错：兼容同步/异步 emit，任何异常吞掉（cache 事件不阻断主链路）。"""
+    try:
+        out = emit(event)  # type: ignore[operator]
+        if asyncio.iscoroutine(out):
+            await out
+    except Exception:
+        pass
 
 # LLM 结构化抽取的 system prompt：只输出一个 JSON 对象
 JOB_PROFILE_SYSTEM_PROMPT = (
@@ -101,41 +118,73 @@ class JobAgent(BaseAgent):
                 errors=["缺少岗位输入 state.context['jobs'] / 'jd_text'"],
             )
 
-        # LLM 结构化（mock/失败 → 规则拆分）
-        client = None
-        try:
-            from app.core.llm import get_llm_client
+        # cache-aside（CONTRACTS3 §1.4）：所有 JD 的 title+description 拼接 hash → Redis
+        jd_blob = "\x1f".join(
+            f"{j.get('title') or ''}\x1f{j.get('description') or ''}"
+            if isinstance(j, dict)
+            else str(j)
+            for j in jobs
+        )
+        key = job_key(text_hash(jd_blob))
+        cached = await get_json(key)
+        hit = (
+            isinstance(cached, dict)
+            and isinstance(cached.get("jobs"), list)
+            and bool(cached["jobs"])
+        )
+        await _safe_emit(emit, {"type": "cache", "hit": hit, "key": key})
 
-            client = get_llm_client()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("获取 LLM 客户端失败，走规则画像: %s", exc)
-
-        source = "mock"
-        profiled: list[dict] | None = None
-        if client is not None:
+        if hit:
+            profiled = cached["jobs"]
+            level = str(cached.get("level") or "")
+            source = str(cached.get("source") or "cache")
+            # 同名 JD 可能属不同记录：id/company 按当前输入重映射
+            if len(profiled) == len(jobs):
+                for stored, src in zip(profiled, jobs):
+                    if isinstance(stored, dict) and isinstance(src, dict):
+                        stored["id"] = src.get("id")
+                        stored["company"] = src.get("company") or stored.get("company") or ""
+            cache_state = "hit"
+        else:
+            # LLM 结构化（mock/失败 → 规则拆分）
+            client = None
             try:
-                from app.core.llm import MockLLMClient
+                from app.core.llm import get_llm_client
 
-                # A4 之后看 is_mock 属性，之前回退类型判断
-                if not getattr(client, "is_mock", isinstance(client, MockLLMClient)):
-                    batch = jobs[:_MAX_LLM_JOBS]
-                    user = f"岗位列表（JSON）:\n{batch}\n"
-                    raw = await client.generate_json(JOB_PROFILE_SYSTEM_PROMPT, user)
-                    raw_jobs = raw.get("jobs") if isinstance(raw, dict) else None
-                    if isinstance(raw_jobs, list) and raw_jobs:
-                        profiled = [
-                            _coerce_job(r, jobs[i] if i < len(jobs) else None)
-                            for i, r in enumerate(raw_jobs)
-                        ]
-                        source = "llm"
+                client = get_llm_client()
             except Exception as exc:  # noqa: BLE001
-                logger.warning("岗位结构化 LLM 失败，走规则画像: %s", exc)
+                logger.warning("获取 LLM 客户端失败，走规则画像: %s", exc)
 
-        if profiled is None:
-            profiled = [_mock_job(dict(job)) for job in jobs if isinstance(job, dict)]
             source = "mock"
+            profiled: list[dict] | None = None
+            if client is not None:
+                try:
+                    from app.core.llm import MockLLMClient
 
-        level = ""
-        data = {"jobs": profiled, "level": level, "source": source}
+                    # A4 之后看 is_mock 属性，之前回退类型判断
+                    if not getattr(client, "is_mock", isinstance(client, MockLLMClient)):
+                        batch = jobs[:_MAX_LLM_JOBS]
+                        user = f"岗位列表（JSON）:\n{batch}\n"
+                        raw = await client.generate_json(JOB_PROFILE_SYSTEM_PROMPT, user)
+                        raw_jobs = raw.get("jobs") if isinstance(raw, dict) else None
+                        if isinstance(raw_jobs, list) and raw_jobs:
+                            profiled = [
+                                _coerce_job(r, jobs[i] if i < len(jobs) else None)
+                                for i, r in enumerate(raw_jobs)
+                            ]
+                            source = "llm"
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("岗位结构化 LLM 失败，走规则画像: %s", exc)
+
+            if profiled is None:
+                profiled = [_mock_job(dict(job)) for job in jobs if isinstance(job, dict)]
+                source = "mock"
+
+            level = ""
+            cache_state = "miss"
+            # 写缓存（失败静默，不影响主链路）
+            await set_json(key, {"jobs": profiled, "level": level, "source": source}, TTL_JOB)
+
+        data = {"jobs": profiled, "level": level, "source": source, "cache": cache_state}
         state.results["job_agent"] = data
         return AgentResult(status="ok", message_type="job_profile", data=data)

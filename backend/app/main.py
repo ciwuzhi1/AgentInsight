@@ -8,7 +8,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app.api import agent, datasets, health
+from app.api import agent, auth, datasets, health
+from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -25,9 +26,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AgentInsight", lifespan=lifespan)
 
+# CORS 收紧（CONTRACTS3 §3.4）：白名单来源来自 config.CORS_ORIGINS（逗号分隔）
+_CORS_ORIGINS = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_CORS_ORIGINS or ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -58,6 +62,9 @@ async def access_log_middleware(request: Request, call_next):
 app.include_router(datasets.router)
 app.include_router(agent.router)
 app.include_router(health.router)
+
+# 阶段3 增量（CONTRACTS3 §3.3）：注册 / 登录 / me
+app.include_router(auth.router)
 from app.api import crawler  # CODE-7 并行产出， noqa: E402
 
 app.include_router(crawler.router)
@@ -69,6 +76,11 @@ app.include_router(resumes.router)
 app.include_router(matches.router)
 app.include_router(models_api.router)
 app.include_router(settings_api.router)
+
+# 阶段3 增量（CONTRACTS3 §2.4）：评测报告只读接口
+from app.api import evaluation  # noqa: E402
+
+app.include_router(evaluation.router)
 
 
 @app.get("/")

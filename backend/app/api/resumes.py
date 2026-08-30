@@ -5,8 +5,9 @@ import asyncio
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from app.api.auth import UserCtx, get_current_user
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.persistence.mysql import get_resume, save_resume
@@ -19,8 +20,11 @@ _ALLOWED_EXTS = {".pdf", ".docx", ".txt"}
 
 
 @router.post("")
-async def upload_resume(file: UploadFile = File(...)) -> dict:
-    """上传简历文件：≤10MB、后缀白名单，存 uploads/resumes/ 并登记。"""
+async def upload_resume(
+    file: UploadFile = File(...),
+    user: UserCtx = Depends(get_current_user),
+) -> dict:
+    """上传简历文件：≤10MB、后缀白名单，存 uploads/resumes/ 并登记（带 user_id）。"""
     filename = file.filename or ""
     ext = Path(filename).suffix.lower()
     if ext not in _ALLOWED_EXTS:
@@ -40,7 +44,7 @@ async def upload_resume(file: UploadFile = File(...)) -> dict:
     path.write_bytes(data)
 
     try:
-        await asyncio.to_thread(save_resume, resume_id, filename, str(path), {})
+        await asyncio.to_thread(save_resume, resume_id, filename, str(path), {}, user.user_id)
     except Exception as exc:
         logger.warning("简历登记失败 resume=%s: %s", resume_id, exc)
         raise HTTPException(status_code=500, detail="简历登记失败") from exc
@@ -48,10 +52,15 @@ async def upload_resume(file: UploadFile = File(...)) -> dict:
 
 
 @router.get("/{resume_id}")
-async def read_resume(resume_id: str) -> dict:
-    """返回简历元信息与 profile（解析结果），无记录 404。"""
+async def read_resume(resume_id: str, user: UserCtx = Depends(get_current_user)) -> dict:
+    """返回简历元信息与 profile（解析结果），无记录 404。
+
+    隔离（CONTRACTS3 §3.4）：user_id ∈ {NULL(公共遗留), 当前用户} 才可见，否则 404（不泄露存在性）。
+    """
     row = await asyncio.to_thread(get_resume, resume_id)
     if row is None:
+        raise HTTPException(status_code=404, detail=f"简历不存在: {resume_id}")
+    if row.get("user_id") is not None and row["user_id"] != user.user_id:
         raise HTTPException(status_code=404, detail=f"简历不存在: {resume_id}")
     return {
         "resume_id": row["id"],

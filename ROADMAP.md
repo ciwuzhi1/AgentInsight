@@ -39,11 +39,11 @@
 - [x] 阶段0 环境与骨架（2026-08-30）
 - [x] 阶段1 链路A MVP + 爬虫 + 前端（commit 9957c2a）
 - [x] 阶段2 链路B 多智能体 + 设置中心 + 健壮性 + 57 单测（commit d19c913）
-- [x] 文档对齐：ARCHITECTURE 重写 / ROADMAP 建立（本次）
-- [ ] P1 真实智能
-- [ ] P2 Redis 链路C
+- [x] 文档对齐：ARCHITECTURE 重写 / ROADMAP 建立（a1054d5）
+- [x] P1 真实智能（核心）：GLM-4.5-air 经设置中心接入激活，真实 LLM 冒烟与全量评测完成
+- [x] P2 Redis 链路C：Cache-Aside（实测 HIT 提速 2.4x，HIT 0 次 LLM）+ 任务幂等锁(409 接管) + HIT 徽标
+- [x] P3 评测体系：100 case（60 nl2sql/20 match/10 routing/10 error）+ runner CLI + 真实 GLM 基线
+- [x] P4 后端：JWT 注册/登录 + 数据隔离（实测 404/401）；登录前端页待做
 - [ ] P6 部署与历史
-- [ ] P3 评测体系
-- [ ] P4 用户与安全
 - [ ] P5 Spark 链路D
 - [ ] P7 线上发布

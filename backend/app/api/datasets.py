@@ -4,8 +4,9 @@ from __future__ import annotations
 import asyncio
 import uuid
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
+from app.api.auth import UserCtx, get_current_user
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.data_engine.profiler import profile_csv
@@ -25,10 +26,15 @@ def table_name_for(dataset_id: str) -> str:
 
 
 @router.post("")
-async def upload_dataset(request: Request, file: UploadFile = File(...)) -> dict:
+async def upload_dataset(
+    request: Request,
+    file: UploadFile = File(...),
+    user: UserCtx = Depends(get_current_user),
+) -> dict:
     """保存 CSV → 画像 → 注册 DuckDB 视图 → 登记 MySQL → 返回元数据。
 
     体积校验（CONTRACTS2 §5）：Content-Length 预检 + 分块读累计 ≤10MB，超限 413。
+    登录必须（CONTRACTS3 §3.4）：新写入带 user_id。
     """
     filename = file.filename or ""
     if not filename.lower().endswith(".csv"):
@@ -96,6 +102,7 @@ async def upload_dataset(request: Request, file: UploadFile = File(...)) -> dict
             profile.rows_estimate,
             profile.size_bytes,
             schema,
+            user.user_id,
         )
     except Exception as exc:
         logger.warning("数据集落库失败 dataset=%s: %s", dataset_id, exc)

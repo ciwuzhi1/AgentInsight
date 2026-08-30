@@ -35,7 +35,7 @@ type DatasetInfo = {
 type SseEvent = { type: string } & Record<string, unknown>;
 
 type TimelineItem = {
-  kind: "agent" | "engine" | "sql" | "error" | "state";
+  kind: "agent" | "engine" | "sql" | "error" | "state" | "cache";
   agent?: string;
   status?: string;
   latency_ms?: number;
@@ -47,6 +47,8 @@ type TimelineItem = {
   code?: string;
   message?: string;
   state_status?: string;
+  hit?: boolean;
+  key?: string;
 };
 
 /* plan 事件里的一个步骤声明 */
@@ -644,6 +646,13 @@ function buildTimeline(events: SseEvent[]): TimelineModel {
       case "state":
         items.push({ kind: "state", state_status: String(ev.status ?? "") });
         break;
+      case "cache":
+        items.push({
+          kind: "cache",
+          hit: ev.hit === true,
+          key: ev.key !== undefined && ev.key !== null ? String(ev.key) : undefined,
+        });
+        break;
       default:
         break;
     }
@@ -744,6 +753,24 @@ function TimelinePanel({
               return (
                 <li key={idx} className="text-xs text-slate-500">
                   状态切换 → {it.state_status}
+                </li>
+              );
+            }
+            if (it.kind === "cache") {
+              const hit = it.hit === true;
+              const keyTail = it.key ? it.key.slice(-4) : "";
+              return (
+                <li
+                  key={idx}
+                  className="flex flex-wrap items-center gap-2 text-sm"
+                >
+                  {hit ? (
+                    <Badge tone="sky">
+                      ⚡ Redis HIT{keyTail ? ` · …${keyTail}` : ""}
+                    </Badge>
+                  ) : (
+                    <Badge>cache MISS</Badge>
+                  )}
                 </li>
               );
             }
@@ -1414,6 +1441,7 @@ export default function Home() {
   const [final, setFinal] = useState<FinalResult | MatchFinal | null>(null);
   const [running, setRunning] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -1467,6 +1495,7 @@ export default function Home() {
       return;
     }
     setAskError(null);
+    setOkMsg(null);
     setEvents([]);
     setFinal(null);
     setRunning(true);
@@ -1476,6 +1505,15 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dataset_id: dataset.dataset_id, query }),
       });
+      if (res.status === 409) {
+        const body = (await res.json().catch(() => ({}))) as { task_id?: string };
+        if (body.task_id) {
+          setOkMsg("已接管进行中任务");
+          subscribe(body.task_id);
+          return;
+        }
+        throw await readError(res);
+      }
       if (!res.ok) throw await readError(res);
       const { task_id } = (await res.json()) as { task_id: string };
       subscribe(task_id);
@@ -1488,6 +1526,7 @@ export default function Home() {
   // 简历匹配：复用与提问相同的 SSE 消费链路（提交时清空旧事件）
   async function startMatch(resumeId: string, jobIds: number[]) {
     setAskError(null);
+    setOkMsg(null);
     setEvents([]);
     setFinal(null);
     setRunning(true);
@@ -1497,6 +1536,15 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ resume_id: resumeId, job_ids: jobIds }),
       });
+      if (res.status === 409) {
+        const body = (await res.json().catch(() => ({}))) as { task_id?: string };
+        if (body.task_id) {
+          setOkMsg("已接管进行中任务");
+          subscribe(body.task_id);
+          return;
+        }
+        throw await readError(res);
+      }
       if (!res.ok) throw await readError(res);
       const { task_id } = (await res.json()) as { task_id: string };
       subscribe(task_id);
@@ -1594,6 +1642,7 @@ export default function Home() {
             </div>
             <div className="space-y-5 md:col-span-2">
               {askError && !running && <ErrorBar message={askError} />}
+              {okMsg && <OkBar message={okMsg} />}
               <TimelinePanel events={events} running={running} />
               {final && final.engine !== "multi_agent" && (
                 <ResultPanel final={final as FinalResult} />

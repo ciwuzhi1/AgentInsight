@@ -24,7 +24,7 @@ class TaskStatus(str, Enum):
 # 从 failed 直接进终态 failed_final（契约 §3.5 流程隐含要求）。
 _TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.CREATED: {TaskStatus.ROUTING},
-    TaskStatus.ROUTING: {TaskStatus.RUNNING},
+    TaskStatus.ROUTING: {TaskStatus.RUNNING, TaskStatus.VALIDATING},
     TaskStatus.RUNNING: {TaskStatus.VALIDATING, TaskStatus.FAILED},
     TaskStatus.VALIDATING: {TaskStatus.COMPLETED, TaskStatus.FAILED},
     TaskStatus.FAILED: {TaskStatus.RETRYING, TaskStatus.FAILED_FINAL},

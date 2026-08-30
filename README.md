@@ -152,6 +152,34 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 
 > 慢 SQL 实测备注：DuckDB 对 5 亿行 `count(*)` 这类向量化快路径查询 0.3s 内即可完成（所以正常业务查询根本碰不到超时）；真正的重查询（20 亿行笛卡尔积聚合）在默认 30s 被强制中断。已知限制：超时通过 `asyncio.wait_for` 取消等待方，DuckDB 后台线程会继续跑完该查询（结果弃用），期间仍占用 CPU——MVP 可接受，后续可换 `conn.interrupt()` 实现 hair-cut 中断。
 
+## 实用阶段实测（P1 真实智能 / P2 Redis 链路C / P3 评测 / P4 auth 后端）
+
+### 评测 100 case（`python -m app.evaluation.runner`，mock 基线 vs GLM-4.5-air 实测）
+
+| 指标 | mock 基线 | GLM-4.5-air 真实 |
+|---|---|---|
+| NL2SQL 执行成功率（60 case） | 96.67% | **95.00%** |
+| NL2SQL 结构通过率（列/聚合/排序断言） | 61.67% | **63.33%** |
+| JSON 合法率 | 100% | 98.33% |
+| 匹配分数区间/缺口准确率（20 case） | 100% / 100% | **100% / 100%** |
+| 路由准确率（10 case） | 100% | 100% |
+| 异常 graceful 率（10 case） | 100%（修复 clarify 迁移 bug 后） | 90%（1 例 LLM 超时波动） |
+| NL2SQL 平均延迟 | 52ms | 14.6s（真网络调用） |
+
+### 链路C Redis 缓存（同一简历 + 同 2 个 JD 连跑两次，真实 GLM）
+
+| 运行 | 端到端 | cache 事件 | LLM/解析调用 |
+|---|---|---|---|
+| 第 1 次 | 21.3s | resume MISS + job MISS | 全量（GLM 结构化×2 + 打分解读） |
+| 第 2 次 | 8.8s（**2.4x 提速**） | resume **HIT** + job **HIT** | 0 次解析/结构化（仅打分解读） |
+| 运行中重复提交 | **409** + 原 task_id（前端「已接管进行中任务」） | - | - |
+
+### auth（P4 后端已生效，登录页待做——curl/脚本携带 Bearer token 即可）
+
+- 无 token 访问受保护接口 → 401；A 用户上传的简历/数据集，B 用户 GET → 404（不泄露存在性）
+- `POST /api/auth/register` → `POST /api/auth/login` 得 7 天 JWT → `Authorization: Bearer` 访问
+- 存量数据（user_id=NULL）为公共遗留，登录用户均可见
+
 > 口径：本机 Windows 11 / Python 3.12 / mock 模式（LLM 走本地规则）。链路 final 含任务创建+全 Agent 执行+校验+组装的端到端墙钟。结论：SSE 首事件 ~25ms（用户"立刻看到 Agent 动起来"），两条链路端到端 <400ms。
 
 ## .env 变量说明
