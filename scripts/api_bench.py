@@ -144,6 +144,16 @@ def main() -> None:
     ok_guard = task_id is None or (result is None)  # 危险 SQL 不产出结果
     record("L4-健壮性", "DROP 注入 → 被拒(无结果)", [0.0 if ok_guard else 1.0], extra="通过" if ok_guard else "未通过!")
 
+    # L4 sql_timeout 热配置往返（引擎级超时行为由单测/引擎层验证覆盖）
+    orig = client.get("/api/settings").json().get("sql_timeout", "30")
+    client.put("/api/settings", json={"key": "sql_timeout", "value": "2"})
+    now = client.get("/api/settings").json().get("sql_timeout")
+    client.put("/api/settings", json={"key": "sql_timeout", "value": str(orig)})
+    restored = client.get("/api/settings").json().get("sql_timeout")
+    ok = now == "2" and restored == str(orig)
+    record("L4-健壮性", "sql_timeout 热配置往返", [0.0 if ok else 1.0],
+           extra="通过(2→还原)" if ok else f"未通过! now={now} restored={restored}")
+
     (out := REPO / "data/bench_report.json").write_text(
         json.dumps({"base": args.base, "results": RESULTS}, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n报告已写入 {out}")

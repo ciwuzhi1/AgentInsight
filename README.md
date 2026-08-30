@@ -145,6 +145,10 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 | L3 写与链路 | 匹配链路 SSE final（端到端，resume∥job 并行） | 5 | **358.2ms** | 409.1ms |
 | L4 健壮性 | 11MB 上传 → 413 拒绝 | 1 | 100.1ms | - |
 | L4 健壮性 | DROP 注入 → SQL Guard 拒绝，无结果落库 | 1 | 通过 | - |
+| L4 健壮性 | sql_timeout 热配置往返（PUT 2 → 读回 2 → 还原） | 1 | 通过 | - |
+| L4 健壮性 | 慢 SQL 强制超时（默认 30s）：20 亿行聚合被中断，返回 `EngineError("查询超时")` | 1 | 通过 | - |
+
+> 慢 SQL 实测备注：DuckDB 对 5 亿行 `count(*)` 这类向量化快路径查询 0.3s 内即可完成（所以正常业务查询根本碰不到超时）；真正的重查询（20 亿行笛卡尔积聚合）在默认 30s 被强制中断。已知限制：超时通过 `asyncio.wait_for` 取消等待方，DuckDB 后台线程会继续跑完该查询（结果弃用），期间仍占用 CPU——MVP 可接受，后续可换 `conn.interrupt()` 实现 hair-cut 中断。
 
 > 口径：本机 Windows 11 / Python 3.12 / mock 模式（LLM 走本地规则）。链路 final 含任务创建+全 Agent 执行+校验+组装的端到端墙钟。结论：SSE 首事件 ~25ms（用户"立刻看到 Agent 动起来"），两条链路端到端 <400ms。
 
