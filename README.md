@@ -128,6 +128,26 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 
 > 测量口径：DuckDB 两行来自 `scripts/bench_duckdb.py` 与链路 A SSE final 事件的 elapsed_ms；爬虫为 `time curl` 墙钟。所有数字为真实运行结果，未预填。
 
+### 接口响应延迟（阶段2 实测，`python scripts/api_bench.py --n 10` 一键复现）
+
+| 层 | 用例 | n | 中位 | P95 |
+|---|---|---|---|---|
+| L1 可用性 | GET /api/health | 10 | 14.1ms | 23.7ms |
+| L1 可用性 | GET /api/health/mysql | 10 | 52.3ms | 78.5ms |
+| L1 可用性 | GET /api/health/redis | 10 | 15.0ms | 110.2ms |
+| L2 读接口 | GET /api/settings | 10 | 46.9ms | 80.3ms |
+| L2 读接口 | GET /api/models | 10 | 59.9ms | 76.4ms |
+| L2 读接口 | GET /api/crawler/jobs | 10 | 60.9ms | 79.0ms |
+| L3 写与链路 | POST /api/datasets（1 万行 CSV） | 5 | 118.1ms | 142.7ms |
+| L3 写与链路 | 数据链路 SSE 首事件 | 5 | **25.0ms** | 31.9ms |
+| L3 写与链路 | 数据链路 SSE final（端到端，含 NL2SQL+DuckDB+Validator） | 5 | **296.3ms** | 428.4ms |
+| L3 写与链路 | 匹配链路 SSE 首事件 | 5 | 20.4ms | 26.3ms |
+| L3 写与链路 | 匹配链路 SSE final（端到端，resume∥job 并行） | 5 | **358.2ms** | 409.1ms |
+| L4 健壮性 | 11MB 上传 → 413 拒绝 | 1 | 100.1ms | - |
+| L4 健壮性 | DROP 注入 → SQL Guard 拒绝，无结果落库 | 1 | 通过 | - |
+
+> 口径：本机 Windows 11 / Python 3.12 / mock 模式（LLM 走本地规则）。链路 final 含任务创建+全 Agent 执行+校验+组装的端到端墙钟。结论：SSE 首事件 ~25ms（用户"立刻看到 Agent 动起来"），两条链路端到端 <400ms。
+
 ## .env 变量说明
 
 | 变量 | 说明 | 缺省行为 |
