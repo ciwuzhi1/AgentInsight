@@ -2,6 +2,8 @@
 "use client";
 
 
+import { useEffect, useState } from "react";
+
 const TOKEN_KEY = "ai_token";
 const USER_KEY = "ai_username";
 
@@ -52,9 +54,13 @@ export function sseUrl(path: string): string {
   return `${base}${path}?token=${encodeURIComponent(token)}`;
 }
 
-/** 导航栏用户徽标：显示用户名 + 退出按钮（未登录不渲染）。 */
+/** 导航栏用户徽标：显示用户名 + 退出按钮（未登录不渲染）。
+ *  localStorage 只能在 useEffect 里读——渲染期读会导致 SSR/客户端水合不一致（Next 左下角报错）。 */
 export function UserChip() {
-  const name = getUsername();
+  const [name, setName] = useState<string | null>(null);
+  useEffect(() => {
+    setName(getUsername());
+  }, []);
   if (!name) return null;
   return (
     <span className="ml-1 flex items-center gap-2 text-xs">
