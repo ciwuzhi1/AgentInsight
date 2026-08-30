@@ -348,7 +348,7 @@ def get_llm_client() -> BaseLLMClient          # 工厂：key 缺失/provider=mo
 
 - Next.js 15 App Router + TS + Tailwind v4 + echarts v5（已写好 package.json/configs，你只写 `frontend/app/**` 与 `frontend/README.md`）。
 - `layout.tsx`（html lang=zh，导入 globals.css）、`globals.css`（`@import "tailwindcss";` + 深色底样式微调）、`page.tsx`（`"use client"` 单页应用）。
-- API 基址 `process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000"`。
+- API 基址 `process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8100"`。
 - 页面区块：① 数据集上传（input file + POST /api/datasets，显示 schema/行数/engine_hint）② 提问输入框 + 示例问题按钮（"按地区统计总销售额""销量 Top 5 的商品"）③ Agent 执行时间线（SSE 事件渲染：agent_start/end 按时间列出，engine 事件显示引擎徽标）④ 结果卡片（SQL 展示 + ECharts 柱状/折线图 + 结果表前 50 行）⑤ 爬虫小面板（输入 URL/页数 → POST /api/crawler/run → 显示抓到的 JD 列表，"导出 CSV 供 Spark"按钮）。
 - SSE 用 `EventSource`；error/final 事件关闭连接。图表 useEffect + `echarts.init`，卸载时 dispose。
 - `frontend/README.md`：中文通俗讲解（给完全没写过前端的人）：Next.js 是什么、为什么选它、组件/状态(state)概念、每个配置文件（package.json/next.config.mjs/tsconfig.json/postcss.config.mjs）各管什么、Tailwind 怎么用、ECharts 怎么画的、SSE 和普通请求的区别。用类比，少术语。

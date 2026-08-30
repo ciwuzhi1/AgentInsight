@@ -25,12 +25,12 @@
 
 ```
                     ┌──────────────────────────────────────────────────┐
-                    │                    浏览器（:3000）                 │
+                    │                    浏览器（:3100）                 │
                     │   Next.js 15 单页：上传 / 提问 / 时间线 / 图表      │
                     └───────▲──────────────────────────▲───────────────┘
                             │ REST (POST /api/...)     │ SSE (EventSource)
                     ┌───────┴──────────────────────────┴───────────────┐
-                    │                FastAPI 后端（:8000）               │
+                    │                FastAPI 后端（:8100）               │
                     │  ┌────────────┐  ┌────────────────────────────┐  │
                     │  │  API 层     │  │  Agent Runtime             │  │
                     │  │ datasets   │──▶ Supervisor.route/run_task   │  │
@@ -92,7 +92,7 @@ npm install
 npm run dev
 ```
 
-浏览器打开 http://localhost:3000 即可使用。
+浏览器打开 http://localhost:3100 即可使用。
 
 LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI 兼容接口均可）；没有 key 时把 `LLM_PROVIDER=mock`（或留空 key），内置规则版 NL2SQL 也能跑通全链路。
 
