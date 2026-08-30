@@ -1356,7 +1356,7 @@ function CrawlerPanel() {
           disabled={busy}
           className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-5 py-2 text-sm font-medium text-amber-300 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          导出 CSV 给 Spark
+          导出 CSV
         </button>
       </div>
 
@@ -1624,7 +1624,7 @@ export default function Home() {
           icon="🕸️"
           no="03"
           title="岗位爬虫"
-          desc="抓取招聘 JD 并入库，可一键导出 CSV 供 Spark 消费"
+          desc="抓取招聘 JD 并入库，可一键导出 CSV（data/large/jd_crawled.csv）"
         >
           <CrawlerPanel />
         </Card>

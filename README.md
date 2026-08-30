@@ -110,10 +110,10 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 2. 提问：**JD 中需求最多的技能 Top 10**。
 3. 时间线出现 `engine: spark` 事件，后端按需 `docker run --rm apache/spark:3.5.1 spark-submit ...` 执行 `spark/jobs/jd_skill_stats.py`，对 skills 列做 explode + groupBy 计数，结果回填为图表。首次运行需拉镜像并启动 JVM，约 1–2 分钟属正常。
 
-### 爬虫 → 导出 CSV → 喂给 Spark
+### 爬虫 → 导出 CSV
 
 1. 前端爬虫面板（或 `POST /api/crawler/run`，body 留空即抓默认假招聘页）抓取岗位数据入库。
-2. 点「导出 CSV 供 Spark」（或 `POST /api/crawler/export`），生成 `data/large/jd_crawled.csv`。
+2. 点「导出 CSV」（或 `POST /api/crawler/export`），生成 `data/large/jd_crawled.csv`。
 3. 把这个 CSV 当数据集上传（行数够大即触发 Spark），或直接重新提问做技能统计——与链路 D 同一条 Spark 作业。
 
 ## Benchmark（实测于本机 2026-08-30，Windows 11 / Python 3.12 / DuckDB 1.5.5）
