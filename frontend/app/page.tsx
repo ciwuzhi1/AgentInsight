@@ -177,6 +177,7 @@ function Badge({
   );
 }
 
+/* 卡内子面板：编号徽标 + 标题 + 副文案（统一样式的 Section 标题） */
 function Section({
   step,
   title,
@@ -189,15 +190,55 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg shadow-black/20">
+    <section className="rounded-xl border border-slate-800/70 bg-slate-950/40 p-5">
       <div className="mb-4">
-        <h2 className="text-lg font-semibold text-slate-100">
-          <span className="mr-2 inline-block rounded-md bg-sky-500/15 px-2 py-0.5 text-sm text-sky-400">
+        <h3 className="flex flex-wrap items-center gap-2 text-base font-semibold text-slate-100">
+          <span className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-md bg-sky-500/15 px-1.5 text-xs font-bold text-sky-400">
             {step}
           </span>
           {title}
-        </h2>
-        {desc && <p className="mt-1 text-sm text-slate-400">{desc}</p>}
+        </h3>
+        {desc && <p className="mt-1 text-xs leading-relaxed text-slate-500">{desc}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/* 主页板块外层卡片：小图标 + 编号 + 标题 + 一句说明 */
+function Card({
+  id,
+  icon,
+  no,
+  title,
+  desc,
+  children,
+}: {
+  id: string;
+  icon: string;
+  no: string;
+  title: string;
+  desc: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      className="scroll-mt-20 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-black/20 sm:p-6"
+    >
+      <div className="mb-5 flex items-start gap-3 border-b border-slate-800/70 pb-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-xl">
+          {icon}
+        </span>
+        <div>
+          <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold text-slate-100">
+            <span className="font-mono text-xs font-bold tracking-widest text-sky-400">
+              {no}
+            </span>
+            {title}
+          </h2>
+          <p className="mt-0.5 text-sm text-slate-400">{desc}</p>
+        </div>
       </div>
       {children}
     </section>
@@ -676,7 +717,7 @@ function TimelinePanel({
       desc="Agent 的每一步都会实时推送到这里；依赖相同的步骤并行执行"
     >
       {running && empty && (
-        <p className="animate-pulse text-sm text-slate-400">
+        <p className="animate-pulse py-6 text-center text-sm text-slate-500">
           正在等待 Agent 开始执行…
         </p>
       )}
@@ -1172,7 +1213,7 @@ function MatchPanel({
           )}
           {jobsError && <ErrorBar message={jobsError} />}
           {!jobsLoading && !jobsError && jobs.length === 0 && (
-            <p className="text-sm text-slate-500">
+            <p className="rounded-lg border border-dashed border-slate-800 py-6 text-center text-sm text-slate-500">
               岗位库还是空的：请先在下方爬虫面板抓取岗位，然后刷新本页。
             </p>
           )}
@@ -1466,49 +1507,132 @@ export default function Home() {
   }
 
   return (
-    <main className="space-y-8">
-      <header>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <h1 className="text-3xl font-bold tracking-tight text-slate-100">
-            Agent<span className="text-sky-400">Insight</span>
-          </h1>
-          <Link
-            href="/settings"
-            className="rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-sm text-slate-300 transition hover:border-sky-500/60 hover:text-sky-300"
+    <div>
+      {/* 吸顶导航条：毛玻璃 + 锚点 */}
+      <nav className="sticky top-0 z-40 -mx-4 mb-8 border-b border-slate-800/80 bg-slate-950/70 px-4 py-3 backdrop-blur">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <a
+            href="#top"
+            className="text-lg font-bold tracking-tight text-slate-100"
           >
-            ⚙ 设置
-          </Link>
+            Agent
+            <span className="bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">
+              Insight
+            </span>
+          </a>
+          <div className="flex items-center gap-1 text-sm">
+            <a
+              href="#analysis"
+              className="rounded-lg px-2.5 py-1.5 text-slate-400 transition hover:bg-slate-800/60 hover:text-sky-300"
+            >
+              数据分析
+            </a>
+            <a
+              href="#match"
+              className="rounded-lg px-2.5 py-1.5 text-slate-400 transition hover:bg-slate-800/60 hover:text-sky-300"
+            >
+              简历匹配
+            </a>
+            <a
+              href="#crawler"
+              className="rounded-lg px-2.5 py-1.5 text-slate-400 transition hover:bg-slate-800/60 hover:text-sky-300"
+            >
+              爬虫
+            </a>
+            <Link
+              href="/settings"
+              className="ml-1 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-slate-300 transition hover:border-sky-500/60 hover:text-sky-300"
+            >
+              ⚙ 设置
+            </Link>
+          </div>
         </div>
-        <p className="mt-2 text-sm text-slate-400">
-          上传 CSV → 用自然语言提问 → 观察 Agent 时间线 → 拿到图表与结论；
-          也可以上传简历与岗位做匹配分析。后端：
+      </nav>
+
+      {/* Hero：精简为标题 + 副标题 + 两个入口 */}
+      <header id="top" className="scroll-mt-20 pb-10">
+        <h1 className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl">
+          Agent
+          <span className="bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">
+            Insight
+          </span>
+        </h1>
+        <p className="mt-2 max-w-3xl text-sm text-slate-400">
+          上传 CSV → 用自然语言提问 → 观察 Agent 时间线 →
+          拿到图表与结论；也可以上传简历与岗位做匹配分析。后端：
           <span className="font-mono text-slate-500">{API_BASE}</span>
         </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <a
+            href="#analysis"
+            className="rounded-lg bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-500"
+          >
+            去分析 ↓
+          </a>
+          <Link
+            href="/settings"
+            className="rounded-lg border border-slate-700 bg-slate-800/60 px-5 py-2 text-sm font-medium text-slate-300 transition hover:border-sky-500/60 hover:text-sky-300"
+          >
+            去设置
+          </Link>
+        </div>
       </header>
 
-      <UploadPanel dataset={dataset} setDataset={setDataset} />
+      <div className="space-y-10">
+        {/* 板块一：数据分析工作台（左窄列输入 / 右宽列执行与结果，md 以下单列堆叠） */}
+        <Card
+          id="analysis"
+          icon="📊"
+          no="01"
+          title="数据分析工作台"
+          desc="上传数据集、提交岗位问题，Agent 全过程实时可见，最终产出图表与结论"
+        >
+          <div className="grid gap-5 md:grid-cols-3">
+            <div className="space-y-5 md:col-span-1">
+              <UploadPanel dataset={dataset} setDataset={setDataset} />
+              <ChatPanel dataset={dataset} running={running} onStartTask={startTask} />
+            </div>
+            <div className="space-y-5 md:col-span-2">
+              {askError && !running && <ErrorBar message={askError} />}
+              <TimelinePanel events={events} running={running} />
+              {final && final.engine !== "multi_agent" && (
+                <ResultPanel final={final as FinalResult} />
+              )}
+            </div>
+          </div>
+        </Card>
 
-      <div className="border-t border-slate-800/60" />
-      <ChatPanel dataset={dataset} running={running} onStartTask={startTask} />
+        {/* 板块二：简历匹配（结果卡放卡内底部） */}
+        <Card
+          id="match"
+          icon="🧩"
+          no="02"
+          title="简历匹配"
+          desc="上传简历、从岗位库选岗，由多 Agent 打分、找技能缺口并生成解读"
+        >
+          <div className="space-y-5">
+            <MatchPanel running={running} onStartMatch={startMatch} />
+            {final && final.engine === "multi_agent" && (
+              <MatchResultPanel final={final as MatchFinal} />
+            )}
+          </div>
+        </Card>
 
-      {askError && !running && <ErrorBar message={askError} />}
-      <TimelinePanel events={events} running={running} />
-      {final &&
-        (final.engine === "multi_agent" ? (
-          <MatchResultPanel final={final as MatchFinal} />
-        ) : (
-          <ResultPanel final={final as FinalResult} />
-        ))}
+        {/* 板块三：岗位爬虫 */}
+        <Card
+          id="crawler"
+          icon="🕸️"
+          no="03"
+          title="岗位爬虫"
+          desc="抓取招聘 JD 并入库，可一键导出 CSV 供 Spark 消费"
+        >
+          <CrawlerPanel />
+        </Card>
+      </div>
 
-      <div className="border-t border-slate-800/60" />
-      <MatchPanel running={running} onStartMatch={startMatch} />
-
-      <div className="border-t border-slate-800/60" />
-      <CrawlerPanel />
-
-      <footer className="pb-6 pt-2 text-center text-xs text-slate-600">
+      <footer className="pb-6 pt-10 text-center text-xs text-slate-600">
         AgentInsight MVP · Next.js 15 + React 19 + Tailwind v4 + ECharts 5
       </footer>
-    </main>
+    </div>
   );
 }

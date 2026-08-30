@@ -12,9 +12,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" className="scroll-smooth">
       <body>
-        <div className="mx-auto max-w-4xl px-4 py-10">{children}</div>
+        <div className="mx-auto max-w-6xl px-4 py-6">{children}</div>
       </body>
     </html>
   );
