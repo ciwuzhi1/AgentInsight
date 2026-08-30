@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.api import agent, datasets, health
 from app.core.logging import get_logger
@@ -72,5 +72,17 @@ app.include_router(settings_api.router)
 
 
 @app.get("/")
-async def root() -> dict:
-    return {"name": "AgentInsight", "docs": "/docs"}
+async def root() -> HTMLResponse:
+    """人类入口：简明导航页（API 客户端请用 /api/* 与 /docs）。"""
+    return HTMLResponse(
+        "<html><head><meta charset='utf-8'><title>AgentInsight Backend</title></head>"
+        "<body style='font-family:system-ui;max-width:560px;margin:80px auto;line-height:1.9'>"
+        "<h2>AgentInsight 后端（API 服务）</h2>"
+        "<p>这里是 API，没有界面。界面（前端）在 <a href='http://localhost:3100'>http://localhost:3100</a></p>"
+        "<ul>"
+        "<li>接口文档（Swagger）：<a href='/docs'>/docs</a></li>"
+        "<li>健康检查：<a href='/api/health'>/api/health</a> · "
+        "<a href='/api/health/mysql'>/api/health/mysql</a> · "
+        "<a href='/api/health/redis'>/api/health/redis</a></li>"
+        "</ul></body></html>"
+    )
