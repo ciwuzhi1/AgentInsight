@@ -1,6 +1,25 @@
-# AgentInsight — 会看数据的 AI Agent（NL2SQL 数据分析助手）
+# AgentInsight — 会看数据的 AI Agent（Multi-Agent 数据分析 + 简历岗位匹配）
 
-上传一份 CSV，用中文提问，Agent 自动选引擎（DuckDB / Spark）、生成 SQL、执行、校验并画图；全过程通过 SSE 实时推送执行时间线。20 万行以内的 CSV 走 DuckDB 即席查询，超过阈值自动路由到容器里的 Spark 作业。
+上传一份 CSV，用中文提问，Agent 自动选引擎（DuckDB / Spark）、生成 SQL、执行、校验并画图；上传简历 + 勾选岗位，resume∥job **并行**的多智能体工作流输出匹配评分与技能缺口。全过程通过 SSE 实时推送执行时间线（含 plan/并行/retry 事件）。20 万行以内的 CSV 走 DuckDB 即席查询，超过阈值自动路由到容器里的 Spark 作业（暂缓启用，见下文）。
+
+## 阶段2 新增（Multi-Agent 链路 B）
+
+- **WorkflowExecutor**：PlanStep DAG（`resume∥job → match → validator`）拓扑波次执行，波内 `asyncio.gather` 并行；单步指数退避重试（0.5/1/2s），可选步骤失败自动跳过（Replan）；`MAX_AGENT_STEPS` 强制生效。
+- **AgentMessage 实用化**：每个 AgentResult 包装为结构化消息存入 `state.messages` 并落库 task_steps.detail，MatchAgent 只从消息取上游 profile——Agent 间协作不传裸字符串。
+- **ResumeAgent**：PDF 优先走 MinerU 官方 API（token 在设置中心配置，未配置/失败自动降级 PyMuPDF 本地文本层），DOCX/TXT 直读；LLM 结构化简历画像，无 key 正则兜底。
+- **MatchAgent**：纯规则打分（技能 0.5 + 项目 0.2 + 经验 0.1 + 学历 0.1 + 工程 0.1，12 组同义词归一）输出总分/五维分项/技能缺口；`match_llm_enabled` 开启且激活了真模型时追加 LLM 解读（否则模板文案并标注来源）。
+- **统一设置中心**：模型多配置热切换（Fernet 加密、连通测试、激活即时生效不重启）+ 功能开关（`match_llm_enabled` / `llm_fallback_mock` / `parser_backend` / `sql_timeout` / 密钥类），全部即时生效。
+- **健壮性**：TaskBus 事件上限 500 + 完结任务 30min TTL 清扫、上传 ≤10MB（413）、DuckDB memory_limit 1GB + 查询 30s 超时、MySQL 连接超时+瞬时重试、LLM 指数退避、全局异常处理 + 请求日志。
+
+## 框架决策对照（为什么不用 LangGraph / DeepAgents）
+
+| 维度 | 自研 Runtime（本项目） | LangGraph / DeepAgents |
+|---|---|---|
+| 场景 | 3~4 节点确定性 DAG（resume∥job→match；data→validator） | 开放式长循环研究任务、复杂状态机 |
+| 可讲性 | 状态机/重试/消息协议每行代码可解释，面试可深挖 | "调框架"，原理层是黑盒 |
+| Trace | 自研 MySQL task_steps + SSE 时间线（已差异化落地） | 依赖框架 checkpoint/LangSmith，体系旁路 |
+| 依赖 | 仅 fastapi/openai/duckdb 等轻依赖 | langgraph 全家桶（~百 MB，版本迭代快） |
+| 结论 | **保持自研**；未来做"岗位市场深度调研"类开放式任务时，以适配器试点接入（+1 天） | 预埋面试问答："为什么不用 LangGraph" |
 
 ## 架构图
 

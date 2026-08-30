@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = ""
     LLM_API_KEY: str = ""
     LLM_MODEL: str = ""
+    LLM_TIMEOUT: int = 60  # 单次请求超时（秒）
 
     # MySQL
     MYSQL_HOST: str = "127.0.0.1"

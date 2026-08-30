@@ -61,3 +61,57 @@ CREATE TABLE IF NOT EXISTS jobs (
   crawled_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_job (title, company, source_url(191))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ===== 阶段2 增量（CONTRACTS2 §4.1）=====
+
+CREATE TABLE IF NOT EXISTS resumes (
+  id VARCHAR(36) PRIMARY KEY,
+  filename VARCHAR(255),
+  path VARCHAR(512),
+  profile_json JSON,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS matches (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  task_id VARCHAR(36),
+  resume_id VARCHAR(36),
+  job_ids_json JSON,
+  score INT,
+  detail_json JSON,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_matches_task (task_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS model_configs (
+  id VARCHAR(36) PRIMARY KEY,
+  name VARCHAR(64),
+  provider VARCHAR(32),
+  base_url VARCHAR(255),
+  api_key_enc VARCHAR(1024),
+  model VARCHAR(64),
+  temperature FLOAT DEFAULT 0,
+  is_active TINYINT(1) DEFAULT 0,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  `key` VARCHAR(64) PRIMARY KEY,
+  value TEXT,
+  is_secret TINYINT(1) DEFAULT 0,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 内置默认设置（INSERT IGNORE：只在缺行时插入，不覆盖已有值）
+INSERT IGNORE INTO app_settings (`key`, value, is_secret) VALUES
+  ('match_llm_enabled', 'true', 0);
+INSERT IGNORE INTO app_settings (`key`, value, is_secret) VALUES
+  ('llm_fallback_mock', 'auto', 0);
+INSERT IGNORE INTO app_settings (`key`, value, is_secret) VALUES
+  ('parser_backend', 'mineru_api', 0);
+INSERT IGNORE INTO app_settings (`key`, value, is_secret) VALUES
+  ('sql_timeout', '30', 0);
+INSERT IGNORE INTO app_settings (`key`, value, is_secret) VALUES
+  ('mineru_api_token', '', 1);
+INSERT IGNORE INTO app_settings (`key`, value, is_secret) VALUES
+  ('tavily_api_key', '', 1);

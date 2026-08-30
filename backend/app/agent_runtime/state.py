@@ -46,6 +46,8 @@ class TaskState:
         self.current_agent: str | None = None
         self.current_step: int = 0
         self.plan: list[str] = []
+        self.plan_steps: list = []   # PlanStep 列表（planner 产出），plan 可由此派生
+        self.messages: list = []     # AgentMessage 列表（executor 追加）
         self.context: dict = {}
         self.results: dict = {}
         self.errors: list[str] = []

@@ -37,6 +37,18 @@ def table_for(dataset_id: str) -> str:
     return f"ds_{dataset_id[:8]}"
 
 
+def _sql_timeout() -> float:
+    """SQL 超时秒数：优先读 app_settings 的 sql_timeout（A4 交付），缺省 30。"""
+    try:
+        from app.core.app_settings import get_setting
+    except ImportError:
+        return 30.0
+    try:
+        return max(1.0, float(get_setting("sql_timeout", "30")))
+    except Exception:
+        return 30.0
+
+
 class DuckDBEngine(AnalysisEngine):
     """每个 dataset_id 一个独立连接，视图按约定命名。"""
 
@@ -50,6 +62,9 @@ class DuckDBEngine(AnalysisEngine):
         conn = self._conns.get(dataset_id)
         if conn is None:
             conn = duckdb.connect()
+            # 资源上限（CONTRACTS2 §5）：限制内存与线程防止单连接吃满宿主机
+            conn.execute("SET memory_limit='1GB'")
+            conn.execute("SET threads=4")
             self._conns[dataset_id] = conn
         return conn
 
@@ -82,8 +97,14 @@ class DuckDBEngine(AnalysisEngine):
         return [{"name": r[0], "type": r[1]} for r in rows]
 
     async def execute(self, dataset_id: str, sql: str) -> EngineResult:
-        """异步执行 SQL：fetch SQL_MAX_ROWS+1 行判断 truncated。"""
-        return await asyncio.to_thread(self._execute_sync, dataset_id, sql)
+        """异步执行 SQL：整体 wait_for 超时（默认 30s），fetch SQL_MAX_ROWS+1 行判断 truncated。"""
+        timeout = _sql_timeout()
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._execute_sync, dataset_id, sql), timeout
+            )
+        except asyncio.TimeoutError:
+            raise EngineError("查询超时") from None
 
     def _execute_sync(self, dataset_id: str, sql: str) -> EngineResult:
         conn = self._conns.get(dataset_id)

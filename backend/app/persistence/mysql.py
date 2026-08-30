@@ -6,12 +6,17 @@ get_connection() 每次新建、用完即关；连接失败抛 PersistenceError�
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any
 
 import pymysql
 from pymysql.cursors import DictCursor
+from pymysql.err import OperationalError
 
 from app.core.config import settings
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class PersistenceError(Exception):
@@ -19,20 +24,33 @@ class PersistenceError(Exception):
 
 
 def get_connection() -> pymysql.connections.Connection:
-    """新建 MySQL 连接（DictCursor, autocommit=True, charset=utf8mb4）。"""
-    try:
-        return pymysql.connect(
-            host=settings.MYSQL_HOST,
-            port=settings.MYSQL_PORT,
-            user=settings.MYSQL_USER,
-            password=settings.MYSQL_PASSWORD,
-            database=settings.MYSQL_DATABASE,
-            charset="utf8mb4",
-            autocommit=True,
-            cursorclass=DictCursor,
-        )
-    except Exception as exc:  # 连接失败必须暴露原因
-        raise PersistenceError(f"MySQL 连接失败: {exc}") from exc
+    """新建 MySQL 连接（DictCursor, autocommit=True, charset=utf8mb4）。
+
+    健壮性（CONTRACTS2 §4.2）：connect/read/write 超时；OperationalError
+    （连接瞬断/超时）单次重连重试，其余异常直接抛 PersistenceError。
+    """
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            return pymysql.connect(
+                host=settings.MYSQL_HOST,
+                port=settings.MYSQL_PORT,
+                user=settings.MYSQL_USER,
+                password=settings.MYSQL_PASSWORD,
+                database=settings.MYSQL_DATABASE,
+                charset="utf8mb4",
+                autocommit=True,
+                cursorclass=DictCursor,
+                connect_timeout=5,
+                read_timeout=15,
+                write_timeout=15,
+            )
+        except OperationalError as exc:
+            last_exc = exc
+            logger.warning("MySQL 连接失败(第 %d 次, 重试): %s", attempt + 1, exc)
+        except Exception as exc:  # 非瞬时错误（认证/库不存在等）不重试
+            raise PersistenceError(f"MySQL 连接失败: {exc}") from exc
+    raise PersistenceError(f"MySQL 连接失败: {last_exc}") from last_exc
 
 
 def _dump(obj: Any) -> str | None:
@@ -189,3 +207,148 @@ def fetch_jobs_for_export() -> list[dict]:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(sql)
         return list(cur.fetchall())
+
+
+# ---------- resumes（简历，CONTRACTS2 §4.2）----------
+
+def save_resume(resume_id: str, filename: str, path: str, profile: dict) -> None:
+    """登记简历（上传时 profile 传空占位，解析成功后覆写）。"""
+    sql = (
+        "INSERT INTO resumes (id, filename, path, profile_json) VALUES (%s, %s, %s, %s) "
+        "ON DUPLICATE KEY UPDATE filename = VALUES(filename), path = VALUES(path), "
+        "profile_json = VALUES(profile_json)"
+    )
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, (resume_id, filename, path, _dump(profile)))
+
+
+def get_resume(resume_id: str) -> dict | None:
+    """按 id 查简历；profile_json 已反序列化。"""
+    sql = "SELECT id, filename, path, profile_json, created_at FROM resumes WHERE id = %s"
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, (resume_id,))
+        row = cur.fetchone()
+    if row is None:
+        return None
+    row["profile_json"] = json.loads(row["profile_json"]) if row.get("profile_json") else {}
+    return row
+
+
+# ---------- matches（匹配结果）----------
+
+def insert_match(task_id: str, resume_id: str | None, job_ids: list, score, detail: dict) -> None:
+    """匹配任务 final 事件落一条结果（api/agent.py 钩子调用，签名见 §5.1）。"""
+    sql = (
+        "INSERT INTO matches (task_id, resume_id, job_ids_json, score, detail_json) "
+        "VALUES (%s, %s, %s, %s, %s)"
+    )
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, (task_id, resume_id, _dump(list(job_ids or [])), score, _dump(detail)))
+
+
+# ---------- jobs 按 id 查（匹配链路用）----------
+
+def get_jobs_by_ids(ids: list) -> list[dict]:
+    """按传入 id 顺序返回岗位 [{id,title,company,location,skills,description}]。"""
+    uniq = [i for i in dict.fromkeys(ids or []) if i is not None]
+    if not uniq:
+        return []
+    sql = (
+        "SELECT id, title, company, location, skills, description FROM jobs "
+        f"WHERE id IN ({', '.join(['%s'] * len(uniq))})"
+    )
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, uniq)
+        rows = {row["id"]: row for row in cur.fetchall()}
+    return [rows[i] for i in uniq if i in rows]
+
+
+# ---------- model_configs（模型配置）----------
+
+def list_model_configs() -> list[dict]:
+    """全部模型配置（api_key_enc 为密文，脱敏在 API 层做）。"""
+    sql = (
+        "SELECT id, name, provider, base_url, api_key_enc, model, temperature, "
+        "is_active, updated_at FROM model_configs ORDER BY updated_at DESC"
+    )
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql)
+        return list(cur.fetchall())
+
+
+def get_active_model_config() -> dict | None:
+    """当前激活的唯一配置；无则 None。"""
+    sql = (
+        "SELECT id, name, provider, base_url, api_key_enc, model, temperature, "
+        "is_active, updated_at FROM model_configs WHERE is_active = 1 LIMIT 1"
+    )
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql)
+        return cur.fetchone()
+
+
+def save_model_config(cfg: dict) -> str:
+    """新增模型配置（api_key 已在 API 层加密）；返回配置 id。"""
+    cfg_id = cfg.get("id") or uuid.uuid4().hex
+    sql = (
+        "INSERT INTO model_configs (id, name, provider, base_url, api_key_enc, model, "
+        "temperature, is_active) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+    )
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            sql,
+            (
+                cfg_id,
+                cfg.get("name"),
+                cfg.get("provider"),
+                cfg.get("base_url"),
+                cfg.get("api_key_enc"),
+                cfg.get("model"),
+                cfg.get("temperature", 0),
+                cfg.get("is_active", 0),
+            ),
+        )
+    return cfg_id
+
+
+def activate_model_config(cfg_id: str) -> None:
+    """事务内先清全部 is_active，再置目标行为 1（保证唯一 active）。"""
+    conn = get_connection()
+    try:
+        conn.begin()
+        with conn.cursor() as cur:
+            cur.execute("UPDATE model_configs SET is_active = 0 WHERE is_active = 1")
+            cur.execute("UPDATE model_configs SET is_active = 1 WHERE id = %s", (cfg_id,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def delete_model_config(cfg_id: str) -> None:
+    """删除模型配置。"""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM model_configs WHERE id = %s", (cfg_id,))
+
+
+# ---------- app_settings（设置中心）----------
+
+def get_all_settings() -> dict[str, dict]:
+    """全部设置：{key: {"value": 原文(密文若 secret), "is_secret": bool}}。"""
+    sql = "SELECT `key`, value, is_secret FROM app_settings"
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql)
+        rows = cur.fetchall()
+    return {r["key"]: {"value": r["value"], "is_secret": bool(r["is_secret"])} for r in rows}
+
+
+def upsert_setting(key: str, value: str, is_secret: bool = False) -> None:
+    """按 key 写入设置（存在则覆盖 value 与 is_secret）。"""
+    sql = (
+        "INSERT INTO app_settings (`key`, value, is_secret) VALUES (%s, %s, %s) "
+        "ON DUPLICATE KEY UPDATE value = VALUES(value), is_secret = VALUES(is_secret)"
+    )
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, (key, value, 1 if is_secret else 0))

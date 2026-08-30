@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from abc import ABC, abstractmethod
 
 from app.core.config import settings
@@ -32,6 +33,9 @@ NL2SQL_SYSTEM_PROMPT = (
 class BaseLLMClient(ABC):
     """LLM 客户端统一接口。"""
 
+    # 是否 mock 实现（供 match_agent 等判断，CONTRACTS2 §4.5）
+    is_mock: bool = False
+
     @abstractmethod
     async def generate_json(self, system: str, user: str) -> dict:
         """调用 LLM 并解析为 dict；失败抛 LLMError。"""
@@ -40,28 +44,41 @@ class BaseLLMClient(ABC):
 class OpenAICompatibleClient(BaseLLMClient):
     """OpenAI 兼容 chat completions（deepseek/glm 等），强制 JSON 输出。"""
 
-    def __init__(self) -> None:
+    is_mock = False
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model: str | None = None,
+        temperature: float | None = None,
+    ) -> None:
         from openai import AsyncOpenAI
 
+        # 缺省回落 .env 全局配置（设置中心来源由 get_llm_client 显式传参）
+        self._base_url = base_url if base_url is not None else settings.LLM_BASE_URL
+        self._api_key = api_key if api_key is not None else settings.LLM_API_KEY
+        self._model = model if model is not None else settings.LLM_MODEL
+        self._temperature = 0 if temperature is None else temperature
         self._client = AsyncOpenAI(
-            base_url=settings.LLM_BASE_URL or None,
-            api_key=settings.LLM_API_KEY,
-            timeout=60,
+            base_url=self._base_url or None,
+            api_key=self._api_key,
+            timeout=settings.LLM_TIMEOUT,  # 单次请求超时（默认 60s，.env 可覆盖）
         )
 
     async def generate_json(self, system: str, user: str) -> dict:
-        """请求 JSON 输出，解析失败重试 1 次，仍失败抛 LLMError。"""
+        """请求 JSON 输出，解析失败按指数退避重试，仍失败抛 LLMError。"""
         last_err: Exception | None = None
         for attempt in range(2):
             try:
                 resp = await self._client.chat.completions.create(
-                    model=settings.LLM_MODEL,
+                    model=self._model,
                     messages=[
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
                     response_format={"type": "json_object"},
-                    temperature=0,
+                    temperature=self._temperature,
                 )
                 content = resp.choices[0].message.content or ""
                 data = json.loads(content)
@@ -71,7 +88,9 @@ class OpenAICompatibleClient(BaseLLMClient):
             except Exception as exc:  # 网络/解析失败统一重试一次
                 last_err = exc
                 logger.warning("LLM 调用失败(第 %d 次): %s", attempt + 1, exc)
-            await asyncio.sleep(0.2)
+            if attempt + 1 < 2:
+                # 重试间隔指数退避：0.2s 起、逐次翻倍、上限 0.8s
+                await asyncio.sleep(min(0.2 * 2**attempt, 0.8))
         raise LLMError(f"LLM 调用失败: {last_err}") from last_err
 
 
@@ -91,6 +110,8 @@ _METRIC_MAP = {
 
 class MockLLMClient(BaseLLMClient):
     """规则版 NL2SQL（无 key 时降级使用），针对 demo_sales.csv。"""
+
+    is_mock = True
 
     async def generate_json(self, system: str, user: str) -> dict:
         await asyncio.sleep(0)  # 保持 async 语义
@@ -162,10 +183,65 @@ class MockLLMClient(BaseLLMClient):
         return {"sql": sql, "explanation": explanation}
 
 
+# 激活模型配置的 TTL 缓存：10s 内复用，DB 异常也按 None 缓存避免打爆
+_ACTIVE_TTL_S = 10.0
+_active_cfg_cache: tuple[float, dict | None] | None = None
+
+
+def _get_active_model_config() -> dict | None:
+    """查 model_configs 激活行（10s TTL 缓存）；DB 失败回退 None 并告警。"""
+    global _active_cfg_cache
+    now = time.monotonic()
+    if _active_cfg_cache is not None and now - _active_cfg_cache[0] < _ACTIVE_TTL_S:
+        return _active_cfg_cache[1]
+    try:
+        from app.persistence.mysql import get_active_model_config
+
+        cfg = get_active_model_config()
+    except Exception as exc:
+        logger.warning("激活模型配置查询失败，回退 .env 来源: %s", exc)
+        cfg = None
+    _active_cfg_cache = (now, cfg)
+    return cfg
+
+
 def get_llm_client() -> BaseLLMClient:
-    """工厂：provider=mock 或 key 缺失/占位时降级 Mock，并告警。"""
+    """工厂：优先设置中心激活的模型配置（api_key 解密），其次 .env 全局配置。
+
+    llm_fallback_mock=never 且无任何可用配置时抛 LLMError("未配置模型")；
+    auto（默认）降级 MockLLMClient。
+    """
+    row = _get_active_model_config()
+    if row:
+        from app.core.crypto import decrypt_secret
+
+        try:
+            api_key = decrypt_secret(row.get("api_key_enc") or "")
+        except ValueError as exc:
+            logger.warning("激活模型 api_key 解密失败，忽略该配置: %s", exc)
+            api_key = ""
+        if api_key:
+            return OpenAICompatibleClient(
+                base_url=row.get("base_url"),
+                api_key=api_key,
+                model=row.get("model"),
+                temperature=row.get("temperature"),
+            )
+        logger.warning("激活模型配置 api_key 为空，回退 .env 来源")
+
     key = (settings.LLM_API_KEY or "").strip()
     if settings.LLM_PROVIDER == "mock" or not key or "填" in key:
-        logger.warning("LLM 未配置有效 key（provider=%s），降级为 MockLLMClient", settings.LLM_PROVIDER)
+        fallback = "auto"
+        try:
+            from app.core.app_settings import get_setting
+
+            fallback = (get_setting("llm_fallback_mock", "auto") or "auto").lower()
+        except Exception:
+            pass
+        if fallback == "never":
+            raise LLMError("未配置模型")
+        logger.warning(
+            "LLM 未配置有效 key（provider=%s），降级为 MockLLMClient", settings.LLM_PROVIDER
+        )
         return MockLLMClient()
     return OpenAICompatibleClient()

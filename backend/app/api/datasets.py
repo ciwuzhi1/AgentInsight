@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -14,6 +14,10 @@ from app.data_engine.router import choose_engine
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
 logger = get_logger(__name__)
 
+# 上传体积上限 10MB（CONTRACTS2 §5）
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+_READ_CHUNK = 1024 * 1024
+
 
 def table_name_for(dataset_id: str) -> str:
     """DuckDB 视图名约定：ds_{uuid 前 8 位}（与上传文件名一致，可由 id 复原）。"""
@@ -21,21 +25,40 @@ def table_name_for(dataset_id: str) -> str:
 
 
 @router.post("")
-async def upload_dataset(file: UploadFile = File(...)) -> dict:
-    """保存 CSV → 画像 → 注册 DuckDB 视图 → 登记 MySQL → 返回元数据。"""
+async def upload_dataset(request: Request, file: UploadFile = File(...)) -> dict:
+    """保存 CSV → 画像 → 注册 DuckDB 视图 → 登记 MySQL → 返回元数据。
+
+    体积校验（CONTRACTS2 §5）：Content-Length 预检 + 分块读累计 ≤10MB，超限 413。
+    """
     filename = file.filename or ""
     if not filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="仅支持 CSV 文件")
+
+    # Content-Length 预检：multipart 信封比文件本身略大，预留 1MB 余量
+    content_length = request.headers.get("content-length", "")
+    if content_length.isdigit() and int(content_length) > MAX_UPLOAD_BYTES + 1024 * 1024:
+        raise HTTPException(status_code=413, detail="文件超过 10MB 限制")
 
     dataset_id = str(uuid.uuid4())  # 完整 uuid 作为 dataset_id
     uuid8 = dataset_id[:8]
     name = filename.rsplit(".", 1)[0]
     path = settings.upload_dir / f"{uuid8}.csv"
 
-    content = await file.read()
-    if not content:
+    # 分块读累计校验，精确限制文件本体大小
+    total = 0
+    try:
+        with path.open("wb") as out:
+            while chunk := await file.read(_READ_CHUNK):
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="文件超过 10MB 限制")
+                out.write(chunk)
+    except HTTPException:
+        path.unlink(missing_ok=True)
+        raise
+    if not total:
+        path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="文件为空")
-    path.write_bytes(content)
 
     # 阻塞的文件画像与引擎注册放入线程池
     try:
