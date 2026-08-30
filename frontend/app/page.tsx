@@ -3,8 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import * as echarts from "echarts";
+import { getToken, installAuthFetch, sseUrl, UserChip } from "./auth-client";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8100";
+
+installAuthFetch();
 
 /* 岗位问题提示词预设：点击仅填入输入框，可编辑后再提交（与数据集无硬绑定） */
 const JOB_PROMPT_PRESETS = [
@@ -1445,13 +1448,18 @@ export default function Home() {
   const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
+    // 未登录直接去登录页（fetch 补丁也会兜底 401 跳转）
+    if (!getToken()) window.location.href = "/login";
+  }, []);
+
+  useEffect(() => {
     // 页面卸载时关闭 SSE 连接
     return () => esRef.current?.close();
   }, []);
 
   function subscribe(taskId: string) {
     esRef.current?.close();
-    const es = new EventSource(`${API_BASE}/api/tasks/${taskId}/events`);
+    const es = new EventSource(sseUrl(`/api/tasks/${taskId}/events`));
     esRef.current = es;
 
     es.onmessage = (ev) => {
@@ -1593,6 +1601,7 @@ export default function Home() {
             >
               ⚙ 设置
             </Link>
+            <UserChip />
           </div>
         </div>
       </nav>

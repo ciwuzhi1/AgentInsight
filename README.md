@@ -220,3 +220,10 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 
 - 系统设计与扩展指南（目录职责、数据流、五个扩展点）：见 [ARCHITECTURE.md](ARCHITECTURE.md)
 - 前端实现讲解：见 [frontend/README.md](frontend/README.md)
+
+### 登录与前端（P4 前端已上线）
+
+- 打开 `http://localhost:3100` 未登录自动跳 `/login`（注册/登录双模式，token 存 localStorage）
+- 全局 fetch 自动注入 `Authorization: Bearer`，401 自动跳回登录页；SSE 走 `?token=` 查询参数（EventSource 限制）
+- 导航栏显示当前用户名 + 退出按钮；`/settings` 同样受登录保护
+- 浏览器端到端实测：注册→登录→UI 上传 CSV→自然语言提问（真 GLM 出 SQL）→简历匹配两次→第二次 **1.6s 双 HIT 徽标**

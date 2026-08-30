@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from app.agent_runtime.registry import registry
 from app.agent_runtime.state import TaskState
 from app.agent_runtime.supervisor import Supervisor
-from app.api.auth import UserCtx, get_current_user
+from app.api.auth import UserCtx, get_current_user, get_current_user_flex
 from app.api.datasets import table_name_for
 from app.cache.keys import text_hash
 from app.cache.redis import acquire_lock, release_lock
@@ -437,7 +437,7 @@ async def get_task(task_id: str, user: UserCtx = Depends(get_current_user)) -> d
 
 @router.get("/{task_id}/events")
 async def task_events(
-    task_id: str, request: Request, user: UserCtx = Depends(get_current_user)
+    task_id: str, request: Request, token: str | None = None, user: UserCtx = Depends(get_current_user_flex)
 ) -> StreamingResponse:
     """SSE 事件流：每事件 data: {json}\\n\\n，自然结束补 event: done（登录必须 + 属主隔离）。"""
     if not bus.exists(task_id):

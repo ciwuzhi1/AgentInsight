@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { getToken, installAuthFetch } from "../auth-client";
+
+installAuthFetch();
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8100";
 
@@ -121,6 +124,11 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    // 未登录直接去登录页（fetch 补丁兜底 401 跳转）
+    if (!getToken()) window.location.href = "/login";
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);

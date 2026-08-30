@@ -14,7 +14,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -44,6 +44,22 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="未登录：缺少 Authorization Bearer token")
     try:
         payload = decode_token(credentials.credentials)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="token 无效或已过期") from None
+    return UserCtx(user_id=payload["user_id"], username=payload["username"])
+
+
+async def get_current_user_flex(
+    request: Request,
+    token: str | None = None,
+) -> UserCtx:
+    """SSE 专用：EventSource 无法携带 header，允许 ?token= 查询参数兜底。"""
+    auth = request.headers.get("authorization") or ""
+    cred = token or (auth[7:] if auth.lower().startswith("bearer ") else None)
+    if not cred:
+        raise HTTPException(status_code=401, detail="未登录：缺少 token")
+    try:
+        payload = decode_token(cred)
     except ValueError:
         raise HTTPException(status_code=401, detail="token 无效或已过期") from None
     return UserCtx(user_id=payload["user_id"], username=payload["username"])
