@@ -14,11 +14,12 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from app.core.logging import get_logger
+from app.core.rate_limit import auth_limiter
 from app.core.security import create_token, decode_token, hash_password, verify_password
 from app.persistence.mysql import create_user, get_user_by_username
 
@@ -76,8 +77,11 @@ class LoginRequest(BaseModel):
 
 
 @router.post("/register", status_code=201)
-async def register(body: RegisterRequest) -> dict:
-    """注册：用户名 3~32 字符唯一，密码 ≥6；重名 409。"""
+async def register(body: RegisterRequest, request: Request) -> dict:
+    """注册：用户名 3~32 字符唯一，密码 ≥6；重名 409；限流 5 次/分钟/IP。"""
+    ok, wait = auth_limiter.allow(f"reg:{request.client.host if request.client else '?'}:{username}")
+    if not ok:
+        raise HTTPException(status_code=429, detail=f"尝试过于频繁，请 {wait}s 后重试")
     username = body.username.strip()
     if not (3 <= len(username) <= 32):
         raise HTTPException(status_code=400, detail="用户名长度需为 3~32 字符")
@@ -97,8 +101,11 @@ async def register(body: RegisterRequest) -> dict:
 
 
 @router.post("/login")
-async def login(body: LoginRequest) -> dict:
-    """登录：用户名或密码错误统一 401（不泄露存在性）。"""
+async def login(body: LoginRequest, request: Request) -> dict:
+    """登录：用户名或密码错误统一 401（不泄露存在性）；限流 5 次/分钟/IP。"""
+    ok, wait = auth_limiter.allow(f"login:{request.client.host if request.client else '?'}:{body.username.strip().lower()}")
+    if not ok:
+        raise HTTPException(status_code=429, detail=f"尝试过于频繁，请 {wait}s 后重试")
     try:
         row = await asyncio.to_thread(get_user_by_username, body.username.strip())
     except Exception as exc:

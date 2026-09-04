@@ -1,3 +1,4 @@
+-- 索引等增量变更走 app/persistence/migrations.py（版本化，启动自动应用）
 -- AgentInsight MySQL DDL（契约 §9，scripts/init_db.py 执行）
 CREATE TABLE IF NOT EXISTS datasets (
   id VARCHAR(36) PRIMARY KEY,

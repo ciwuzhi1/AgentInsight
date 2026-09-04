@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException
+
+from app.core.rate_limit import task_limiter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -31,7 +33,10 @@ class MatchCreateRequest(BaseModel):
 async def create_match(
     body: MatchCreateRequest, user: UserCtx = Depends(get_current_user)
 ) -> dict:
-    """创建匹配任务：校验 resume/jobs 后交 Supervisor 多 Agent 执行（登录必须，归属当前用户）。"""
+    """创建匹配任务：校验 resume/jobs 后交 Supervisor 多 Agent 执行（登录必须；限流 30/分钟/用户）。"""
+    ok_l, wait_l = task_limiter.allow(f"task:{user.user_id}")
+    if not ok_l:
+        raise HTTPException(status_code=429, detail=f"任务创建过于频繁，请 {wait_l}s 后重试")
     if not body.job_ids:
         raise HTTPException(status_code=400, detail="job_ids 不能为空")
 
