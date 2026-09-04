@@ -46,5 +46,5 @@
 - [x] P4 后端：JWT 注册/登录 + 数据隔离（实测 404/401）；登录前端页待做
 - [x] P4 用户与安全：JWT 注册/登录 + 数据隔离 + **登录前端页**（/login + 全局 authFetch + SSE query-token，commit 400fb8b/d343937）
 - [x] P6 部署与体验（feature/optimization 分支）：docker/backend.Dockerfile + frontend.Dockerfile + compose 一键全栈 + Makefile；任务历史面板（MySQL 持久，回放 trace + CSV/JSON 导出）；三项运行时优化（SSE 15s 心跳+前端断线重连、MySQL 连接池化、DuckDB 超时 conn.interrupt() 硬中断）
-- [ ] P5 Spark 链路D
-- [ ] P7 线上发布
+- [x] P5 Spark 链路D：本地构建镜像→容器冒烟→自动路由实跑（9.5s/20万行）→双引擎一致性验证（2e99a7f 之后）
+- [x] P7 部分：GitHub Actions CI（backend pytest + frontend tsc）；公网部署待用户云资源

@@ -1,14 +1,19 @@
 """链路 D 端到端演示 + Spark benchmark：
-上传 jd_large.csv（20 万行 > 阈值 10 万）→ 提问 → Supervisor → DataAgent
-→ AnalysisRouter 自动选 Spark → 容器内 spark-submit → 结果回读 → Validator。
+服务端注册 jd_large.csv（20 万行 > 阈值 10 万，遵循文档 §37 大文件不走上传）
+→ 登录 → 提问 → Supervisor → DataAgent → AnalysisRouter 自动选 Spark
+→ 容器内 spark-submit → 结果回读 → Validator → SSE final。
 用法：python scripts/chain_d_demo.py
 """
 import json
+import subprocess
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
+REPO = Path(__file__).resolve().parents[1]
 BASE = "http://127.0.0.1:8100"
+CSV = REPO / "data" / "large" / "jd_large.csv"
 
 
 def post(url: str, data: bytes | None = None, headers: dict | None = None):
@@ -17,29 +22,36 @@ def post(url: str, data: bytes | None = None, headers: dict | None = None):
 
 
 def main() -> None:
-    # 1. 上传 20 万行 JD 数据集
-    boundary = "----agentinsight"
-    payload = open("data/large/jd_large.csv", "rb").read()
-    body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="file"; filename="jd_large.csv"\r\n'
-        f"Content-Type: text/csv\r\n\r\n"
-    ).encode() + payload + f"\r\n--{boundary}--\r\n".encode()
-    t0 = time.perf_counter()
-    with post("/api/datasets", body, {"Content-Type": f"multipart/form-data; boundary={boundary}"}) as r:
-        ds = json.load(r)
-    print(f"上传: {ds['rows_estimate']} 行, engine_hint={ds['engine_hint']}, table={ds['table_name']} "
-          f"({time.perf_counter() - t0:.1f}s)")
+    # 0. 登录（注册失败说明已存在，直接登录）
+    body = json.dumps({"username": "chaind", "password": "chaind123456"}).encode()
+    try:
+        post("/api/auth/register", body, {"Content-Type": "application/json"})
+    except Exception:
+        pass
+    with post("/api/auth/login", body, {"Content-Type": "application/json"}) as r:
+        token = json.load(r)["token"]
+    auth = {"Authorization": f"Bearer {token}"}
 
-    # 2. 创建任务
+    # 1. 服务端注册大数据集（不经 HTTP 上传）
+    out = subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "register_local_dataset.py"), str(CSV), "jd_large"],
+        capture_output=True, text=True, check=True,
+    )
+    ds = json.loads(out.stdout.strip().splitlines()[-1])
+    print(f"注册: {ds['rows_estimate']} 行, engine_hint={ds['engine_hint']}, table=ds_{ds['dataset_id'][:8]}")
+
+    # 2. 创建任务（真 GLM 生成问题说明；引擎由行数路由决定走 Spark）
     q = json.dumps({"dataset_id": ds["dataset_id"], "query": "JD 中需求最多的技能 Top 10"},
                    ensure_ascii=False).encode()
-    with post("/api/tasks", q, {"Content-Type": "application/json"}) as r:
+    with post("/api/tasks", q, {**auth, "Content-Type": "application/json"}) as r:
         task = json.load(r)
     print("任务:", task["task_id"])
 
-    # 3. 消费 SSE
-    with urllib.request.urlopen(f"{BASE}/api/tasks/{task['task_id']}/events", timeout=600) as stream:
+    # 3. 消费 SSE（Spark 容器冷启动 + 作业，预留 6 分钟）
+    t0 = time.perf_counter()
+    with urllib.request.urlopen(
+        urllib.request.Request(f"{BASE}/api/tasks/{task['task_id']}/events", headers=auth), timeout=360
+    ) as stream:
         for raw in stream:
             line = raw.decode().strip()
             if not line.startswith("data:"):
@@ -54,8 +66,8 @@ def main() -> None:
                 print(f"[agent_end] {ev['agent']} {ev.get('latency_ms')}ms {ev.get('status')}")
             elif t == "final":
                 res = ev["result"]
-                print(f"[final] engine={res['engine']} elapsed={res['elapsed_ms']}ms rows={res['row_count']}")
-                print(f"  columns: {res['columns']}")
+                print(f"[final] engine={res['engine']} elapsed={res['elapsed_ms']}ms "
+                      f"端到端={(time.perf_counter() - t0):.1f}s rows={res['row_count']}")
                 for row in res["rows"]:
                     print(f"  {row}")
             elif t == "error":
