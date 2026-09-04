@@ -97,13 +97,19 @@ class DuckDBEngine(AnalysisEngine):
         return [{"name": r[0], "type": r[1]} for r in rows]
 
     async def execute(self, dataset_id: str, sql: str) -> EngineResult:
-        """异步执行 SQL：整体 wait_for 超时（默认 30s），fetch SQL_MAX_ROWS+1 行判断 truncated。"""
+        """异步执行 SQL：wait_for 超时（默认 30s），超时同时对底层连接 interrupt() 硬中断。"""
         timeout = _sql_timeout()
+        conn = self._conns.get(dataset_id)
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(self._execute_sync, dataset_id, sql), timeout
             )
         except asyncio.TimeoutError:
+            if conn is not None:
+                try:
+                    conn.interrupt()  # 让后台线程的查询尽快中止，而不是继续空烧 CPU
+                except Exception:
+                    pass
             raise EngineError("查询超时") from None
 
     def _execute_sync(self, dataset_id: str, sql: str) -> EngineResult:

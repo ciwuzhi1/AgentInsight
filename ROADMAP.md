@@ -44,6 +44,7 @@
 - [x] P2 Redis 链路C：Cache-Aside（实测 HIT 提速 2.4x，HIT 0 次 LLM）+ 任务幂等锁(409 接管) + HIT 徽标
 - [x] P3 评测体系：100 case（60 nl2sql/20 match/10 routing/10 error）+ runner CLI + 真实 GLM 基线
 - [x] P4 后端：JWT 注册/登录 + 数据隔离（实测 404/401）；登录前端页待做
-- [ ] P6 部署与历史
+- [x] P4 用户与安全：JWT 注册/登录 + 数据隔离 + **登录前端页**（/login + 全局 authFetch + SSE query-token，commit 400fb8b/d343937）
+- [x] P6 部署与体验（feature/optimization 分支）：docker/backend.Dockerfile + frontend.Dockerfile + compose 一键全栈 + Makefile；任务历史面板（MySQL 持久，回放 trace + CSV/JSON 导出）；三项运行时优化（SSE 15s 心跳+前端断线重连、MySQL 连接池化、DuckDB 超时 conn.interrupt() 硬中断）
 - [ ] P5 Spark 链路D
 - [ ] P7 线上发布
