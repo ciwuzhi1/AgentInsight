@@ -5,6 +5,7 @@ import asyncio
 import time
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 
 from app.cache.redis import get_redis
 from app.persistence.mysql import get_connection
@@ -17,19 +18,51 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
+@router.get("/live")
+async def healthz() -> dict:
+    """K8s 风格存活探针：进程活着即 200（不探测依赖）。"""
+    return {"status": "alive"}
+
+
+@router.get("/ready")
+async def readyz() -> dict:
+    """K8s 风格就绪探针：MySQL 必须可用；Redis 允许降级（degraded 不阻塞就绪）。"""
+
+    def _ping() -> int:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        return 0
+
+    mysql_ok = True
+    try:
+        await asyncio.to_thread(_ping)
+    except Exception:
+        mysql_ok = False
+    try:
+        redis_client = await get_redis()
+    except Exception:
+        redis_client = None
+    redis_state = "up" if redis_client is not None else "degraded"
+    if redis_client is not None:
+        try:
+            await redis_client.aclose()
+        except Exception:
+            pass
+    if not mysql_ok:
+        return JSONResponse(status_code=503, content={"ready": False, "mysql": "down", "redis": redis_state})
+    return {"ready": True, "mysql": "up", "redis": redis_state}
+
+
 @router.get("/mysql")
 async def health_mysql() -> dict:
     """SELECT 1 探活；失败返回 503。"""
 
     def _ping() -> int:
         t0 = time.perf_counter()
-        conn = get_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
-                cur.fetchone()
-        finally:
-            conn.close()
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
         return int((time.perf_counter() - t0) * 1000)
 
     try:

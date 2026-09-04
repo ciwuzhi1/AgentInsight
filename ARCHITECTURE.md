@@ -99,7 +99,15 @@ TaskBus 事件上限 500（drop-oldest）+ 完结任务 30min TTL 清扫 + Task 
 4. **改执行计划**：`planner.py` 的模板即 DAG 声明；动态 LLM 规划的接入点在 `Supervisor.route()` 注释处。
 5. **框架决策**：不引入 LangGraph/DeepAgents——链路是确定性 DAG，自研 executor 仅数百行且 trace/消息协议可讲原理；对照表见 README。
 
-## 7. 测试与复现
+## 7. 企业级工程化
+
+- **日志**：`app/core/logging.py` JSON 行格式（contextvars 注入 request_id/task_id）；访问日志在 `main.py` 中间件
+- **探针**：`/healthz`（存活）、`/readyz`（就绪，依赖 MySQL；Redis 降级不阻塞）、`/metrics`（进程内指标）
+- **限流**：`app/core/rate_limit.py` 滑动窗口（auth 5/min·IP+用户名；task 30/min·用户）
+- **迁移**：`app/persistence/migrations.py` 版本化迁移，lifespan 启动自动应用
+- **依赖**：requirements.txt 全量精确锁版
+
+## 8. 测试与复现
 
 ```bash
 cd backend && python -m pytest tests/unit -q   # 57 全绿，离线

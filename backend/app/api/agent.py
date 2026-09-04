@@ -10,7 +10,7 @@ from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.agent_runtime.registry import registry
 from app.agent_runtime.state import TaskState
@@ -19,7 +19,8 @@ from app.api.auth import UserCtx, get_current_user, get_current_user_flex
 from app.api.datasets import table_name_for
 from app.cache.keys import text_hash
 from app.cache.redis import acquire_lock, release_lock
-from app.core.logging import get_logger
+from app.core.logging import get_logger, set_task_id
+from app.core.rate_limit import task_limiter
 from app.persistence.mysql import (
     get_dataset,
     get_task_row as mysql_get_task_row,
@@ -208,7 +209,7 @@ def ensure_task_visible(task_id: str, user: UserCtx) -> None:
 
 class TaskCreateRequest(BaseModel):
     dataset_id: str
-    query: str
+    query: str = Field(min_length=1, max_length=2000)
 
 
 def _register_agents() -> None:
@@ -249,7 +250,10 @@ def _register_agents() -> None:
 
 @router.post("")
 async def create_task(body: TaskCreateRequest, user: UserCtx = Depends(get_current_user)) -> dict:
-    """创建任务并后台启动 run_task（登录必须；任务归属当前用户）。"""
+    """创建任务并后台启动 run_task（登录必须；限流 30 次/分钟/用户）。"""
+    ok, wait = task_limiter.allow(f"task:{user.user_id}")
+    if not ok:
+        raise HTTPException(status_code=429, detail=f"任务创建过于频繁，请 {wait}s 后重试")
     try:
         ds = await asyncio.to_thread(get_dataset, body.dataset_id)
     except Exception as exc:
@@ -403,10 +407,17 @@ async def _insert_match(task_id: str, result: dict) -> None:
 
 
 @router.get("")
-async def list_tasks(limit: int = 20, user: UserCtx = Depends(get_current_user)) -> dict:
-    """任务历史（MySQL 持久层，含历史重启前的旧任务；归属隔离，NULL 公共可见）。"""
-    items = await asyncio.to_thread(mysql_list_tasks, user.user_id, max(1, min(limit, 100)))
-    return {"count": len(items), "items": items}
+async def list_tasks(
+    limit: int = 20, page: int = 1, user: UserCtx = Depends(get_current_user)
+) -> dict:
+    """任务历史（分页：page 从 1 起；归属隔离，NULL 公共可见）。"""
+    limit_n = max(1, min(limit, 100))
+    page_n = max(1, page)
+    items = await asyncio.to_thread(
+        mysql_list_tasks, user.user_id, limit_n, (page_n - 1) * limit_n
+    )
+    return {"page": page_n, "limit": limit_n, "count": len(items), "items": items,
+            "has_more": len(items) == limit_n}
 
 
 @router.get("/{task_id}/trace")

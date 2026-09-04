@@ -404,18 +404,16 @@ def save_model_config(cfg: dict) -> str:
 
 def activate_model_config(cfg_id: str) -> None:
     """事务内先清全部 is_active，再置目标行为 1（保证唯一 active）。"""
-    conn = get_connection()
-    try:
+    with get_connection() as conn:
         conn.begin()
-        with conn.cursor() as cur:
-            cur.execute("UPDATE model_configs SET is_active = 0 WHERE is_active = 1")
-            cur.execute("UPDATE model_configs SET is_active = 1 WHERE id = %s", (cfg_id,))
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE model_configs SET is_active = 0 WHERE is_active = 1")
+                cur.execute("UPDATE model_configs SET is_active = 1 WHERE id = %s", (cfg_id,))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise  # 异常退出时包装器丢弃连接，避免带事务状态回池
 
 
 def delete_model_config(cfg_id: str) -> None:
