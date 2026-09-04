@@ -6,6 +6,7 @@ get_connection() 每次新建、用完即关；连接失败抛 PersistenceError�
 from __future__ import annotations
 
 import json
+import queue
 import uuid
 from typing import Any
 
@@ -23,7 +24,7 @@ class PersistenceError(Exception):
     """持久化异常，携带底层原因。"""
 
 
-def get_connection() -> pymysql.connections.Connection:
+def _new_connection() -> pymysql.connections.Connection:
     """新建 MySQL 连接（DictCursor, autocommit=True, charset=utf8mb4）。
 
     健壮性（CONTRACTS2 §4.2）：connect/read/write 超时；OperationalError
@@ -51,6 +52,59 @@ def get_connection() -> pymysql.connections.Connection:
         except Exception as exc:  # 非瞬时错误（认证/库不存在等）不重试
             raise PersistenceError(f"MySQL 连接失败: {exc}") from exc
     raise PersistenceError(f"MySQL 连接失败: {last_exc}") from last_exc
+
+
+# ---------- 轻量连接池：省去每次新建连接的 ~3-5ms 握手，trace 落库高频受益 ----------
+
+_POOL: "queue.Queue[pymysql.connections.Connection]" = queue.Queue(maxsize=8)
+
+
+class _PooledConnection:
+    """池化借出器：with get_connection() as conn 语义不变。"""
+
+    def __init__(self) -> None:
+        self._conn: pymysql.connections.Connection | None = None
+
+    def __enter__(self) -> pymysql.connections.Connection:
+        try:
+            self._conn = _POOL.get_nowait()
+        except queue.Empty:
+            self._conn = _new_connection()
+        try:
+            self._conn.ping(reconnect=True)  # 归还后再借出时可能已被服务端断开
+        except Exception:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = _new_connection()
+        return self._conn
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        conn = self._conn
+        self._conn = None
+        if conn is None:
+            return False
+        if exc_type is not None:  # 出错路径直接丢弃，避免带事务状态回池
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return False
+        try:
+            conn.rollback()  # 清残留事务状态（autocommit 下为 no-op）
+            _POOL.put_nowait(conn)
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        return False
+
+
+def get_connection() -> "_PooledConnection":
+    """借出一个池化连接（兼容原『每次新建』的 with 用法）。"""
+    return _PooledConnection()
 
 
 def _dump(obj: Any) -> str | None:
@@ -389,3 +443,74 @@ def upsert_setting(key: str, value: str, is_secret: bool = False) -> None:
     )
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(sql, (key, value, 1 if is_secret else 0))
+
+
+# ---------- 任务历史（P6） ----------
+
+def list_tasks(user_id: str, limit: int = 20, offset: int = 0) -> list[dict]:
+    """任务历史（新→旧）：user_id 归属隔离（NULL 视为公共遗留，登录用户均可见）。"""
+    sql = (
+        "SELECT id, dataset_id, query, status, engine, current_step, "
+        "JSON_EXTRACT(final_result, '$.score') AS score, "
+        "JSON_EXTRACT(final_result, '$.engine') AS result_engine, "
+        "created_at, completed_at, error "
+        "FROM tasks WHERE user_id IS NULL OR user_id = %s "
+        "ORDER BY created_at DESC LIMIT %s OFFSET %s"
+    )
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, (user_id, int(limit), int(offset)))
+        rows = cur.fetchall()
+    for r in rows:
+        if isinstance(r.get("score"), str):
+            try:
+                r["score"] = int(float(r["score"]))
+            except ValueError:
+                r["score"] = None
+        if isinstance(r.get("created_at"), object) and r.get("created_at") is not None:
+            r["created_at"] = r["created_at"].isoformat(sep=" ", timespec="seconds") if hasattr(r["created_at"], "isoformat") else r["created_at"]
+        if r.get("completed_at") is not None and hasattr(r["completed_at"], "isoformat"):
+            r["completed_at"] = r["completed_at"].isoformat(sep=" ", timespec="seconds")
+    return rows
+
+
+def get_task_steps(task_id: str) -> list[dict]:
+    """任务的步骤 trace（按 step 序号 + 主键序），供历史时间线回放。"""
+    sql = (
+        "SELECT step, agent_name, status, latency_ms, retry_count, detail, created_at "
+        "FROM task_steps WHERE task_id = %s ORDER BY id"
+    )
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, (task_id,))
+        rows = cur.fetchall()
+    for r in rows:
+        if r.get("detail") and isinstance(r["detail"], str):
+            try:
+                r["detail"] = json.loads(r["detail"])
+            except ValueError:
+                pass
+        if r.get("created_at") is not None and hasattr(r["created_at"], "isoformat"):
+            r["created_at"] = r["created_at"].isoformat(sep=" ", timespec="seconds")
+    return rows
+
+
+def get_task_row(task_id: str) -> dict | None:
+    """单任务原始行（含 user_id/final_result），供 trace 与导出做归属校验。"""
+    sql = (
+        "SELECT id, dataset_id, query, status, engine, final_result, error, user_id, "
+        "created_at, completed_at FROM tasks WHERE id = %s"
+    )
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute(sql, (task_id,))
+        row = cur.fetchone()
+    if row is None:
+        return None
+    if row.get("final_result") and isinstance(row["final_result"], str):
+        try:
+            row["final_result"] = json.loads(row["final_result"])
+        except ValueError:
+            pass
+    if row.get("created_at") is not None and hasattr(row["created_at"], "isoformat"):
+        row["created_at"] = row["created_at"].isoformat(sep=" ", timespec="seconds")
+    if row.get("completed_at") is not None and hasattr(row["completed_at"], "isoformat"):
+        row["completed_at"] = row["completed_at"].isoformat(sep=" ", timespec="seconds")
+    return row

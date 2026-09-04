@@ -1292,6 +1292,140 @@ function MatchPanel({
   );
 }
 
+/* ---------- 区块：任务历史（P6，数据来自 MySQL 持久层，重启不丢） ---------- */
+
+type TraceStep = {
+  agent_name: string;
+  status: string;
+  latency_ms: number | null;
+  detail: Record<string, unknown> | null;
+};
+
+type HistoryItem = {
+  id: string;
+  query: string;
+  status: string;
+  engine: string | null;
+  score: number | null;
+  created_at: string;
+};
+
+function HistoryPanel({
+  onReplay,
+}: {
+  onReplay: (steps: TraceStep[], final: MatchFinal | FinalResult | null) => void;
+}) {
+  const [items, setItems] = useState<HistoryItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [replaying, setReplaying] = useState<string | null>(null);
+
+  async function load() {
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks?limit=20`);
+      if (!res.ok) throw await readError(res);
+      setItems(((await res.json()) as { items: HistoryItem[] }).items);
+    } catch (e) {
+      setError(errText(e));
+    }
+  }
+
+  async function replay(taskId: string) {
+    setReplaying(taskId);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/trace`);
+      if (!res.ok) throw await readError(res);
+      const body = (await res.json()) as { steps: TraceStep[]; final_result: MatchFinal | FinalResult | null };
+      onReplay(body.steps ?? [], body.final_result ?? null);
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setReplaying(null);
+    }
+  }
+
+  async function download(taskId: string, fmt: "csv" | "json") {
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/export?format=${fmt}`);
+      if (!res.ok) throw await readError(res);
+      const blob = new Blob([await res.text()], {
+        type: fmt === "csv" ? "text/csv" : "application/json",
+      });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `task_${taskId.slice(0, 8)}.${fmt}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setError(errText(e));
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="text-sm font-semibold text-slate-200">🗂 任务历史（MySQL 持久，重启不丢）</h4>
+        <button
+          onClick={load}
+          className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 transition hover:border-sky-500/60 hover:text-sky-300"
+        >
+          {items ? "刷新" : "加载历史"}
+        </button>
+      </div>
+      {error && <p className="mb-2 text-xs text-rose-400">{error}</p>}
+      {items && items.length === 0 && (
+        <p className="py-2 text-center text-xs text-slate-500">还没有任务记录——提交第一个问题吧</p>
+      )}
+      {items && items.length > 0 && (
+        <ul className="divide-y divide-slate-800/70">
+          {items.map((it) => (
+            <li key={it.id} className="flex flex-wrap items-center gap-2 py-2 text-xs">
+              <span
+                className={`rounded px-1.5 py-0.5 ${
+                  it.status === "completed"
+                    ? "bg-emerald-900/50 text-emerald-300"
+                    : "bg-rose-900/50 text-rose-300"
+                }`}
+              >
+                {it.status === "completed" ? "完成" : it.status === "failed_final" ? "失败" : it.status}
+              </span>
+              {it.engine && <span className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-300">{it.engine}</span>}
+              {typeof it.score === "number" && (
+                <span className="rounded bg-sky-900/50 px-1.5 py-0.5 text-sky-300">{it.score} 分</span>
+              )}
+              <span className="min-w-0 flex-1 truncate text-slate-300" title={it.query}>
+                {it.query}
+              </span>
+              <span className="text-slate-500">{it.created_at}</span>
+              <button
+                onClick={() => replay(it.id)}
+                disabled={replaying === it.id}
+                className="rounded border border-slate-700 px-2 py-0.5 text-slate-300 transition hover:border-sky-500/60 hover:text-sky-300 disabled:opacity-50"
+              >
+                {replaying === it.id ? "回放中…" : "回放"}
+              </button>
+              <button
+                onClick={() => download(it.id, "csv")}
+                className="rounded border border-slate-700 px-2 py-0.5 text-slate-300 transition hover:border-amber-500/60 hover:text-amber-300"
+              >
+                CSV
+              </button>
+              <button
+                onClick={() => download(it.id, "json")}
+                className="rounded border border-slate-700 px-2 py-0.5 text-slate-300 transition hover:border-amber-500/60 hover:text-amber-300"
+              >
+                JSON
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /* ---------- 区块⑥ 爬虫面板 ---------- */
 
 function CrawlerPanel() {
@@ -1446,6 +1580,7 @@ export default function Home() {
   const [askError, setAskError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
+  const reconnectRef = useRef<boolean>(true); // 每个任务允许一次 SSE 断线自动重连
 
   useEffect(() => {
     // 未登录直接去登录页（fetch 补丁也会兜底 401 跳转）
@@ -1490,8 +1625,15 @@ export default function Home() {
       setRunning(false);
     });
 
+    // 断线自动重连一次（后端有 15s 心跳，正常不会触发；触发时多为网络抖动）
     es.onerror = () => {
       es.close();
+      if (reconnectRef.current) {
+        reconnectRef.current = false;
+        setOkMsg("事件流中断，正在重连…");
+        setTimeout(() => subscribe(taskId), 1500);
+        return;
+      }
       setRunning(false);
       setAskError("事件流连接中断（后端可能未启动或已断开）");
     };
@@ -1524,6 +1666,7 @@ export default function Home() {
       }
       if (!res.ok) throw await readError(res);
       const { task_id } = (await res.json()) as { task_id: string };
+      reconnectRef.current = true;
       subscribe(task_id);
     } catch (e) {
       setAskError(errText(e));
@@ -1555,6 +1698,7 @@ export default function Home() {
       }
       if (!res.ok) throw await readError(res);
       const { task_id } = (await res.json()) as { task_id: string };
+      reconnectRef.current = true;
       subscribe(task_id);
     } catch (e) {
       setAskError(errText(e));
@@ -1656,6 +1800,28 @@ export default function Home() {
               {final && final.engine !== "multi_agent" && (
                 <ResultPanel final={final as FinalResult} />
               )}
+              <HistoryPanel
+                onReplay={(steps, finalResult) => {
+                  // 由历史 trace 合成事件流，复用时间线/结果卡渲染
+                  const evs: SseEvent[] = [];
+                  (steps as TraceStep[]).forEach((r) => {
+                    const sid = (r.detail && r.detail.step_id) || r.agent_name;
+                    evs.push({ type: "agent_start", agent: r.agent_name, step: sid } as SseEvent);
+                    evs.push({
+                      type: "agent_end",
+                      agent: r.agent_name,
+                      step: sid,
+                      status: r.status === "ok" ? "ok" : "error",
+                      latency_ms: r.latency_ms ?? 0,
+                      detail: r.detail ?? {},
+                    } as SseEvent);
+                  });
+                  setEvents(evs);
+                  setFinal(finalResult);
+                  setRunning(false);
+                  document.getElementById("analysis")?.scrollIntoView({ behavior: "smooth" });
+                }}
+              />
             </div>
           </div>
         </Card>

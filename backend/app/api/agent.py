@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import time
 from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.agent_runtime.registry import registry
@@ -20,8 +22,11 @@ from app.cache.redis import acquire_lock, release_lock
 from app.core.logging import get_logger
 from app.persistence.mysql import (
     get_dataset,
+    get_task_row as mysql_get_task_row,
+    get_task_steps as mysql_get_task_steps,
     insert_task,
     insert_task_step,
+    list_tasks as mysql_list_tasks,
     update_task,
 )
 
@@ -397,6 +402,65 @@ async def _insert_match(task_id: str, result: dict) -> None:
         logger.warning("匹配结果落库失败 task=%s: %s", task_id, exc)
 
 
+@router.get("")
+async def list_tasks(limit: int = 20, user: UserCtx = Depends(get_current_user)) -> dict:
+    """任务历史（MySQL 持久层，含历史重启前的旧任务；归属隔离，NULL 公共可见）。"""
+    items = await asyncio.to_thread(mysql_list_tasks, user.user_id, max(1, min(limit, 100)))
+    return {"count": len(items), "items": items}
+
+
+@router.get("/{task_id}/trace")
+async def get_task_trace(task_id: str, user: UserCtx = Depends(get_current_user)) -> dict:
+    """历史任务 trace（MySQL）：任务行 + 步骤 trace + final_result，供前端回放旧任务。"""
+    row = await asyncio.to_thread(mysql_get_task_row, task_id)
+    if row is None or (row.get("user_id") is not None and row["user_id"] != user.user_id):
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    steps = await asyncio.to_thread(mysql_get_task_steps, task_id)
+    return {
+        "task_id": task_id,
+        "status": row.get("status"),
+        "engine": row.get("engine"),
+        "query": row.get("query"),
+        "created_at": row.get("created_at"),
+        "completed_at": row.get("completed_at"),
+        "steps": steps,
+        "final_result": row.get("final_result"),
+    }
+
+
+@router.get("/{task_id}/export")
+async def export_task(
+    task_id: str, format: str = "csv", user: UserCtx = Depends(get_current_user)
+) -> Response:
+    """导出任务结果：format=csv（columns+rows）或 json（完整 final_result）。"""
+    row = await asyncio.to_thread(mysql_get_task_row, task_id)
+    if row is None or (row.get("user_id") is not None and row["user_id"] != user.user_id):
+        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+    final = row.get("final_result")
+    if not final:
+        raise HTTPException(status_code=404, detail="该任务没有可导出的结果")
+    safe_name = f"task_{task_id[:8]}"
+    if format == "json":
+        return Response(
+            content=json.dumps(final, ensure_ascii=False, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}.json"'},
+        )
+    columns = final.get("columns") or []
+    rows = final.get("rows") or []
+    if not columns or not rows:
+        raise HTTPException(status_code=404, detail="该任务没有表格数据（匹配任务请导出 JSON）")
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(columns)
+    writer.writerows(rows)
+    return Response(
+        content=buf.getvalue().encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.csv"'},
+    )
+
+
 @router.get("/{task_id}")
 async def get_task(task_id: str, user: UserCtx = Depends(get_current_user)) -> dict:
     """从 Bus 事件回放拼装任务详情（登录必须 + 属主隔离）。"""
@@ -445,14 +509,27 @@ async def task_events(
     ensure_task_visible(task_id, user)
 
     async def stream() -> AsyncIterator[str]:
+        agen = bus.subscribe(task_id)
         try:
-            async for event in bus.subscribe(task_id):
+            while True:
+                # 心跳：空闲 15s 发 SSE 注释行，防代理/浏览器断流；事件到达立即下发
+                try:
+                    event = await asyncio.wait_for(agen.__anext__(), timeout=15)
+                except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        return
+                    yield ": ping\n\n"
+                    continue
+                except StopAsyncIteration:
+                    break
                 if await request.is_disconnected():
                     return
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             yield "event: done\ndata: {}\n\n"
         except asyncio.CancelledError:
             raise
+        finally:
+            await agen.aclose()
 
     return StreamingResponse(
         stream(),

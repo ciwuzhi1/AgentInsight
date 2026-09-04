@@ -123,12 +123,14 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 | 场景 | 数据规模 | 引擎 | 端到端耗时 | 峰值内存 |
 |---|---|---|---|---|
 | 按地区统计总销售额（含路由/校验全链路） | 1 万行 CSV | DuckDB | **82 ms**（task elapsed） | 待实测 |
-| 技能 Top 10（视图注册 / 查询分列） | 20 万行 CSV | DuckDB | **注册 90 ms / 查询 105 ms** | 待实测 |
-| 技能 Top 10 | 20 万行 CSV | Spark（容器） | 待实测（镜像一键构建：`docker build -f docker/spark.Dockerfile -t apache/spark:3.5.1 docker/`，pyspark 已验证装好） | 待实测 |
+| 技能 Top 10（视图注册 / 查询分列） | 20 万行 CSV | DuckDB | **注册 90 ms / 查询 105 ms** | memory_limit 1GB |
+| 技能 Top 18 | 20 万行 CSV（19.9 万行估计） | **Spark 容器 local[*]** | **9.5s**（docker run 含 JVM 启动；作业内部 6.1s） | driver 1g |
 | 爬虫抓取 1 页（10 条含详情页 + 入库） | 10 条 | - | **17.7 s**（礼貌性 0.5s/请求 + 逐条抓详情页） | - |
 | LLM 生成 SQL | - | mock 规则 0 ms（本地正则） | DeepSeek/GLM 待填 key 实测 | - |
 
 > 测量口径：DuckDB 两行来自 `scripts/bench_duckdb.py` 与链路 A SSE final 事件的 elapsed_ms；爬虫为 `time curl` 墙钟。所有数字为真实运行结果，未预填。
+
+**双引擎结果一致性（P5 实测）**：同一 20 万行 JD 数据、同一聚合语义，DuckDB 与 Spark 输出完全一致（git 50518 / react 50444 / fastapi 50209…）；小数据 DuckDB 快 ~90 倍（无容器/JVM 开销），Spark 的价值在大规模批处理与水平扩展叙事——这正是 AnalysisRouter 按行数路由的意义。链路 D 一键复现：`python scripts/chain_d_demo.py`。
 
 ### 接口响应延迟（阶段2 实测，`python scripts/api_bench.py --n 10` 一键复现）
 

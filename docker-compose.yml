@@ -1,15 +1,71 @@
+# AgentInsight 一键全栈（P6）：mysql + redis + backend + frontend
+# 用法：docker compose up -d --build
+# 说明：
+#   - MySQL 容器自动建库 agentinsight 与应用账号（与 .env 同名变量）
+#   - 首次启动后需执行一次建表：docker compose exec backend python ../scripts/init_db.py 无效
+#     （scripts 未打进镜像），改用：
+#       docker compose exec -T mysql mysql -u root -p$MYSQL_ROOT_PASSWORD agentinsight < backend/app/persistence/schema.sql
+#   - 浏览器入口 http://localhost:3100；后端 http://localhost:8100/docs
 services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-changeit_root}
+      MYSQL_DATABASE: agentinsight
+      MYSQL_USER: ${MYSQL_USER:-agent_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-changeit_app}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD:-changeit_root}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   redis:
     image: redis:7-alpine
-    container_name: agentinsight-redis
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-# Spark 不常驻：由后端 SparkAdapter 按需 `docker run --rm ... spark-submit` 启动（文档 §62 原则）
-# MySQL 用本机已装的 8.0.26（D:\Development\software\MySql\MySql 8.0），不进容器
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: ${MYSQL_USER:-agent_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-changeit_app}
+      MYSQL_DATABASE: agentinsight
+      REDIS_URL: redis://redis:6379/0
+      APP_SECRET: ${APP_SECRET:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      CORS_ORIGINS: "http://localhost:3100,http://127.0.0.1:3100"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8100:8000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE: http://127.0.0.1:8100
+    depends_on:
+      - backend
+    ports:
+      - "3100:3000"
+
+volumes:
+  mysql_data:
