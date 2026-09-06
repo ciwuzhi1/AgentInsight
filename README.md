@@ -234,6 +234,17 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 
 > 多实例演进路径：限流换 Redis ZSET、指标换 Prometheus client、日志接 ELK——接口已按此预留。
 
+## 企业级工程化（E1 硬化批次）
+
+| 维度 | 落地内容 |
+|---|---|
+| 可观测性 | **结构化 JSON 日志**（每行含 `request_id`/`task_id`，`X-Request-ID` 请求头透传）；K8s 风格探针 **`/healthz`**（存活）/**`/readyz`**（就绪：MySQL 必须 up，Redis 允许降级）；**`/metrics`**（请求总数/错误数/平均延迟） |
+| 安全 | 登录/注册限流 **5 次/分钟/IP+用户名**（429 + 等待秒数）；任务创建限流 **30 次/分钟/用户**；query 长度上限 2000（422）；依赖全量**精确锁版**（requirements.txt） |
+| 可靠性 | **版本化数据库迁移**（`app/persistence/migrations.py`，启动自动应用、幂等重放、`schema_migrations` 版本表）；**基线索引 v1**（user_id+created_at 等 6 项）；任务历史**分页**（page/has_more） |
+| 质量 | 77 单测全绿（新增限流/JSON日志/长度校验 5 例）；连接池化回归修复（health 探针与事务路径的池化适配） |
+
+> 多实例演进路径：限流换 Redis ZSET、指标换 Prometheus client、日志接 ELK——接口已按此预留。
+
 ### 登录与前端（P4 前端已上线）
 
 - 打开 `http://localhost:3100` 未登录自动跳 `/login`（注册/登录双模式，token 存 localStorage）
