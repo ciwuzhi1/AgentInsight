@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.auth import UserCtx, get_current_user
 from app.core.logging import get_logger
 from app.evaluation.runner import default_report_path
 
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/api/evaluations", tags=["evaluation"])
 
 
 @router.get("/last")
-async def last_report() -> dict:
+async def last_report(user: UserCtx = Depends(get_current_user)) -> dict:
     """返回最近一次评测报告；无报告文件返回 404。"""
     path = default_report_path()
     if not path.exists():

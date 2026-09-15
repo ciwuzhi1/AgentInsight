@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.agent_runtime.registry import registry
-from app.agent_runtime.state import TaskState
+from app.agent_runtime.state import TaskState, TaskStatus
 from app.agent_runtime.supervisor import Supervisor
 from app.api.auth import UserCtx, get_current_user, get_current_user_flex
 from app.api.datasets import table_name_for
@@ -100,7 +100,9 @@ class TaskBus:
             while len(events) > _EVENT_CAP:  # drop-oldest
                 events.pop(0)
                 entry["truncated"] = True
-            if event.get("type") in ("final", "error"):
+            if event.get("type") == "final" or (
+                event.get("type") == "error" and event.get("terminal")
+            ):
                 self._mark_finished(task_id)
             entry["cond"].notify_all()
 
@@ -318,10 +320,19 @@ async def _run(state: TaskState) -> None:
     try:
         _register_agents()
         await Supervisor().run_task(state, emit)
+        # 任务终态失败时补发 terminal error 事件（executor 不单独 emit）
+        if state.status is TaskStatus.FAILED_FINAL:
+            last_err = state.errors[-1] if state.errors else "任务执行失败"
+            await emit({"type": "error", "code": "ENGINE_ERROR", "message": last_err, "terminal": True})
     except Exception as exc:
         logger.exception("任务执行异常 task=%s", state.task_id)
         try:
-            await emit({"type": "error", "code": "ENGINE_ERROR", "message": str(exc)})
+            # 确保状态进入终态再发 terminal error
+            if state.status is TaskStatus.RUNNING:
+                state.transition(TaskStatus.FAILED)
+            if state.status is TaskStatus.FAILED:
+                state.transition(TaskStatus.FAILED_FINAL)
+            await emit({"type": "error", "code": "ENGINE_ERROR", "message": str(exc), "terminal": True})
         except Exception:
             pass
     finally:
@@ -366,9 +377,11 @@ async def _persist_event(state: TaskState, event: dict) -> None:
             detail=detail,
         )
     elif etype == "error":
-        await asyncio.to_thread(
-            update_task, state.task_id, "failed_final", error=event.get("message")
-        )
+        # 只在任务真正进入终态时才写 failed_final；重试中的 error 事件不落终态
+        if state.status is TaskStatus.FAILED_FINAL:
+            await asyncio.to_thread(
+                update_task, state.task_id, "failed_final", error=event.get("message")
+            )
     elif etype == "final":
         result = event.get("result") or {}
         await asyncio.to_thread(

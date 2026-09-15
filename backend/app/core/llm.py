@@ -187,6 +187,10 @@ class MockLLMClient(BaseLLMClient):
 _ACTIVE_TTL_S = 10.0
 _active_cfg_cache: tuple[float, dict | None] | None = None
 
+# LLM Client 实例缓存：按 (base_url, model) 缓存，复用 HTTP 连接池
+_CLIENT_TTL_S = 60.0  # 与配置缓存联动，60s 后重建
+_client_cache: dict[str, tuple[float, BaseLLMClient]] = {}
+
 
 def _get_active_model_config() -> dict | None:
     """查 model_configs 激活行（10s TTL 缓存）；DB 失败回退 None 并告警。"""
@@ -205,11 +209,32 @@ def _get_active_model_config() -> dict | None:
     return cfg
 
 
+def _get_cached_client(key: str) -> BaseLLMClient | None:
+    """从缓存取 client；过期或不存在返回 None。"""
+    entry = _client_cache.get(key)
+    if entry is None:
+        return None
+    ts, client = entry
+    if time.monotonic() - ts > _CLIENT_TTL_S:
+        _client_cache.pop(key, None)
+        return None
+    return client
+
+
+def _set_cached_client(key: str, client: BaseLLMClient) -> BaseLLMClient:
+    """缓存 client 实例。"""
+    _client_cache[key] = (time.monotonic(), client)
+    return client
+
+
 def get_llm_client() -> BaseLLMClient:
     """工厂：优先设置中心激活的模型配置（api_key 解密），其次 .env 全局配置。
 
     llm_fallback_mock=never 且无任何可用配置时抛 LLMError("未配置模型")；
     auto（默认）降级 MockLLMClient。
+
+    优化：按 (base_url, model) 缓存 OpenAICompatibleClient 实例，
+    复用 HTTP 连接池，避免每次调用新建 AsyncOpenAI。
     """
     row = _get_active_model_config()
     if row:
@@ -221,12 +246,17 @@ def get_llm_client() -> BaseLLMClient:
             logger.warning("激活模型 api_key 解密失败，忽略该配置: %s", exc)
             api_key = ""
         if api_key:
-            return OpenAICompatibleClient(
+            cache_key = f"db:{row.get('base_url')}:{row.get('model')}"
+            cached = _get_cached_client(cache_key)
+            if cached is not None:
+                return cached
+            client = OpenAICompatibleClient(
                 base_url=row.get("base_url"),
                 api_key=api_key,
                 model=row.get("model"),
                 temperature=row.get("temperature"),
             )
+            return _set_cached_client(cache_key, client)
         logger.warning("激活模型配置 api_key 为空，回退 .env 来源")
 
     key = (settings.LLM_API_KEY or "").strip()
@@ -244,4 +274,10 @@ def get_llm_client() -> BaseLLMClient:
             "LLM 未配置有效 key（provider=%s），降级为 MockLLMClient", settings.LLM_PROVIDER
         )
         return MockLLMClient()
-    return OpenAICompatibleClient()
+    # .env 来源也缓存
+    cache_key = f"env:{settings.LLM_BASE_URL}:{settings.LLM_MODEL}"
+    cached = _get_cached_client(cache_key)
+    if cached is not None:
+        return cached
+    client = OpenAICompatibleClient()
+    return _set_cached_client(cache_key, client)

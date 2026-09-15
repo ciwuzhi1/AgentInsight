@@ -3,15 +3,19 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import re
 import time
 from decimal import Decimal
 
 from app.agents.base import AgentResult, BaseAgent, EmitFn
 from app.agent_runtime.state import TaskState
+from app.cache.keys import nl2sql_key, text_hash
+from app.cache.policies import TTL_SCHEMA
+from app.cache.redis import get_json, set_json
 from app.core.config import settings
 from app.core.llm import NL2SQL_SYSTEM_PROMPT, get_llm_client
-from app.data_engine.duckdb_engine import duckdb_engine
+from app.data_engine.duckdb_engine import EngineError, duckdb_engine
 from app.data_engine.profiler import profile_csv
 from app.data_engine.router import choose_engine
 from app.tools.schema_tool import format_schema_for_prompt
@@ -98,31 +102,84 @@ class DataAgent(BaseAgent):
 
         sql: str | None = None
         explanation = "mock 规则生成"
+        cache_state = None
         if engine == "spark":
             # Spark 分支：直接跑技能统计任务，不经 guard/NL2SQL
             result = await run_skill_stats(path)
             explanation = "数据量较大，已路由到 Spark 执行技能统计任务"
         else:
-            # DuckDB 分支：注册视图 → schema → NL2SQL → guard → 执行
+            # DuckDB 分支：注册视图 → schema → NL2SQL（缓存）→ guard → 执行
             name = ds.get("name") or ""
             schema = await asyncio.to_thread(
                 duckdb_engine.register_dataset, state.dataset_id or "", name, path
             )
             table = ds.get("table_name") or f"ds_{(state.dataset_id or '')[:8]}"
-            user_prompt = (
-                f"表名: {table}\n"
-                f"字段:\n{format_schema_for_prompt(schema)}\n"
-                f"用户问题: {state.query}\n"
-            )
-            llm_result = await get_llm_client().generate_json(NL2SQL_SYSTEM_PROMPT, user_prompt)
-            raw_sql = str(llm_result.get("sql") or "").strip()
-            explanation = str(llm_result.get("explanation") or "mock 规则生成")
+            schema_str = format_schema_for_prompt(schema)
+            schema_hash = text_hash(schema_str)
+            cache_key = nl2sql_key(state.dataset_id or "", schema_hash, state.query)
+
+            # NL2SQL 缓存：相同 (dataset, schema, query) 复用 SQL，不调 LLM
+            cached = await get_json(cache_key)
+            if cached and cached.get("sql"):
+                raw_sql = str(cached["sql"]).strip()
+                explanation = str(cached.get("explanation") or "缓存命中")
+                cache_state = "hit"
+            else:
+                cache_state = "miss"
+                user_prompt = (
+                    f"表名: {table}\n"
+                    f"字段:\n{schema_str}\n"
+                    f"用户问题: {state.query}\n"
+                )
+                llm_result = await get_llm_client().generate_json(NL2SQL_SYSTEM_PROMPT, user_prompt)
+                raw_sql = str(llm_result.get("sql") or "").strip()
+                explanation = str(llm_result.get("explanation") or "mock 规则生成")
+
             ok, clean_sql, reason = guard(raw_sql, settings.SQL_MAX_ROWS)
             if not ok:
                 raise SQLGuardError(f"SQL 未通过安全校验: {reason}")
             sql = clean_sql
             await emit({"type": "sql", "sql": sql, "explanation": explanation})
-            result = await duckdb_engine.execute(state.dataset_id or "", sql)
+
+            # 执行 + 错误反馈重试（最多 2 次）
+            result = None
+            last_err = None
+            for attempt in range(3):  # 1 次原始 + 2 次重试
+                try:
+                    result = await duckdb_engine.execute(state.dataset_id or "", sql)
+                    break
+                except Exception as exc:
+                    last_err = exc
+                    if attempt < 2 and cache_state == "miss":
+                        # 把错误喂回 LLM 重新生成 SQL
+                        retry_prompt = (
+                            f"表名: {table}\n"
+                            f"字段:\n{schema_str}\n"
+                            f"用户问题: {state.query}\n"
+                            f"上一次生成的 SQL 执行失败：{exc}\n"
+                            f"上一次的 SQL：{sql}\n"
+                            f"请修正 SQL 后重新输出。"
+                        )
+                        try:
+                            llm_result = await get_llm_client().generate_json(
+                                NL2SQL_SYSTEM_PROMPT, retry_prompt
+                            )
+                            new_sql = str(llm_result.get("sql") or "").strip()
+                            ok, clean_sql, reason = guard(new_sql, settings.SQL_MAX_ROWS)
+                            if ok:
+                                sql = clean_sql
+                                explanation = str(llm_result.get("explanation") or explanation)
+                                await emit({"type": "sql", "sql": sql, "explanation": f"重试修正：{explanation}"})
+                                continue
+                        except Exception:
+                            pass
+                    raise
+            if result is None:
+                raise last_err or EngineError("SQL 执行失败")
+
+            # 写缓存（仅首次生成成功时写入）
+            if cache_state == "miss" and sql:
+                await set_json(cache_key, {"sql": sql, "explanation": explanation}, TTL_SCHEMA)
 
         # 组装 §6 final_result
         final = {

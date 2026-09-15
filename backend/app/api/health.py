@@ -39,16 +39,12 @@ async def readyz() -> dict:
         await asyncio.to_thread(_ping)
     except Exception:
         mysql_ok = False
+    # Redis 单例：直接检查连接状态，不新建也不关闭
     try:
         redis_client = await get_redis()
     except Exception:
         redis_client = None
     redis_state = "up" if redis_client is not None else "degraded"
-    if redis_client is not None:
-        try:
-            await redis_client.aclose()
-        except Exception:
-            pass
     if not mysql_ok:
         return JSONResponse(status_code=503, content={"ready": False, "mysql": "down", "redis": redis_state})
     return {"ready": True, "mysql": "up", "redis": redis_state}
@@ -81,8 +77,4 @@ async def health_redis() -> dict:
         client = None
     if client is None:
         return {"redis": "degraded"}
-    try:
-        await client.aclose()
-    except Exception:
-        pass
     return {"redis": "up"}
