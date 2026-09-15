@@ -36,15 +36,16 @@ class TestBuildDataPlanAdaptive:
         ordered = validate_dag(steps)
         assert [s.id for s in ordered] == ["data"]
 
-    def test_normal_query_returns_two_steps(self):
+    def test_normal_query_returns_three_steps(self):
         steps = build_data_plan("按地区统计销售额并排序")
-        assert [s.id for s in steps] == ["data", "validator"]
+        assert [s.id for s in steps] == ["data", "validator", "report"]
         assert steps[1].depends_on == ["data"]
+        assert steps[2].depends_on == ["validator"]
 
-    def test_complex_query_returns_two_steps(self):
+    def test_complex_query_returns_three_steps(self):
         steps = build_data_plan("对比北京和上海的岗位数量差异")
-        assert [s.id for s in steps] == ["data", "validator"]
+        assert [s.id for s in steps] == ["data", "validator", "report"]
 
-    def test_default_no_query_returns_two_steps(self):
+    def test_default_no_query_returns_three_steps(self):
         steps = build_data_plan()
-        assert [s.id for s in steps] == ["data", "validator"]
+        assert [s.id for s in steps] == ["data", "validator", "report"]

@@ -1,4 +1,4 @@
-# 前端镜像：Next.js 多阶段构建（P6 部署）
+# AgentInsight V3.0 — 前端镜像：Next.js 多阶段构建
 FROM node:20-alpine AS deps
 WORKDIR /app
 ARG NPM_REGISTRY=https://registry.npmmirror.com
@@ -15,7 +15,7 @@ ARG NEXT_PUBLIC_API_BASE=http://127.0.0.1:8100
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
 RUN npm run build
 
-FROM node:20-alpine
+FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app ./

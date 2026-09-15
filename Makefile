@@ -1,20 +1,27 @@
-# AgentInsight 常用命令（P6）；Windows 无 make 时手动执行等价命令
-.PHONY: dev up up-build down test bench eval init-data init-db
+# AgentInsight V3.0 常用命令；Windows 无 make 时手动执行等价命令
+.PHONY: dev up up-build down logs test lint bench eval init-data init-db
 
 dev:            ## 本机开发：后端 + 前端（两个终端）
 	python -m uvicorn app.main:app --host 127.0.0.1 --port 8100   # 在 backend/ 下
 	cd frontend && npm run dev
 
-up:             ## Docker 全栈（含构建）
+up:             ## Docker 全栈启动
+	docker compose up -d
+
+up-build:       ## Docker 全栈（含构建）
 	docker compose up -d --build
 
-up-build: up
-
-down:
+down:           ## 停止并移除容器
 	docker compose down
+
+logs:           ## 跟踪全部服务日志
+	docker compose logs -f
 
 test:           ## 单元测试（离线）
 	cd backend && python -m pytest tests/unit -q
+
+lint:           ## 前端 TypeScript 类型检查
+	cd frontend && npx tsc --noEmit
 
 bench:          ## 接口延迟基准
 	python scripts/api_bench.py --n 10

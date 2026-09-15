@@ -249,6 +249,12 @@ def _register_agents() -> None:
         from app.agents.match_agent import MatchAgent
 
         registry.register(MatchAgent())
+    try:
+        registry.get("report_synthesizer")
+    except KeyError:
+        from app.agents.report_agent import ReportSynthesizer
+
+        registry.register(ReportSynthesizer())
 
 
 # ---------- 路由 ----------

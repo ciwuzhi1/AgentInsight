@@ -22,7 +22,7 @@ class PlanError(Exception):
 
 
 def build_match_plan() -> list[PlanStep]:
-    """简历-岗位匹配链路：resume/job 并行 → match → validator。"""
+    """简历-岗位匹配链路：resume/job 并行 → match → validator → report。"""
     return [
         PlanStep(id="resume", agent="resume_agent"),
         PlanStep(id="job", agent="job_agent"),
@@ -33,6 +33,12 @@ def build_match_plan() -> list[PlanStep]:
             params={"optional": False},
         ),
         PlanStep(id="validator", agent="validator_agent", depends_on=["match"]),
+        PlanStep(
+            id="report",
+            agent="report_synthesizer",
+            depends_on=["validator"],
+            params={"optional": True},
+        ),
     ]
 
 
@@ -46,10 +52,16 @@ def build_data_plan(query: str = "") -> list[PlanStep]:
             PlanStep(id="data", agent="data_agent"),
         ]
 
-    # 普通/复杂：完整链路
+    # 普通/复杂：完整链路 + 报告合成
     return [
         PlanStep(id="data", agent="data_agent"),
         PlanStep(id="validator", agent="validator_agent", depends_on=["data"]),
+        PlanStep(
+            id="report",
+            agent="report_synthesizer",
+            depends_on=["validator"],
+            params={"optional": True},
+        ),
     ]
 
 

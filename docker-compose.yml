@@ -1,9 +1,8 @@
-# AgentInsight 一键全栈（P6）：mysql + redis + backend + frontend
+# AgentInsight V3.0 — Docker 全栈：mysql + redis + backend + frontend
 # 用法：docker compose up -d --build
 # 说明：
 #   - MySQL 容器自动建库 agentinsight 与应用账号（与 .env 同名变量）
-#   - 首次启动后需执行一次建表：docker compose exec backend python ../scripts/init_db.py 无效
-#     （scripts 未打进镜像），改用：
+#   - 首次启动后需执行一次建表：
 #       docker compose exec -T mysql mysql -u root -p$MYSQL_ROOT_PASSWORD agentinsight < backend/app/persistence/schema.sql
 #   - 浏览器入口 http://localhost:3100；后端 http://localhost:8100/docs
 services:
@@ -25,6 +24,8 @@ services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -42,12 +43,14 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-changeit_app}
       MYSQL_DATABASE: agentinsight
       REDIS_URL: redis://redis:6379/0
-      APP_SECRET: ${APP_SECRET:-}
+      APP_SECRET: ${APP_SECRET:-changeit_secret}
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
-      CORS_ORIGINS: "http://localhost:3100,http://127.0.0.1:3100"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3100,http://127.0.0.1:3100}
+    volumes:
+      - app_data:/app/data
     depends_on:
       mysql:
         condition: service_healthy
@@ -69,3 +72,5 @@ services:
 
 volumes:
   mysql_data:
+  redis_data:
+  app_data:
