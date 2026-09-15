@@ -1,24 +1,24 @@
-# ARCHITECTURE — AgentInsight 系统设计与扩展指南（阶段2 后现状，2026-08-30 重写）
+# ARCHITECTURE — AgentInsight 系统设计与扩展指南（2026-03-11 优化后）
 
-> 本文描述的是**已实现**的架构（对应 commit `2dd1441` 之后）。想看"离实用还差什么"读 [ROADMAP.md](ROADMAP.md)。
+> 本文描述的是**已实现**的架构。全量优化 18 项已落地，详见 README「全量优化」章节。
 
 ## 1. 一句话架构
 
-自研 Multi-Agent Runtime（DAG 计划 + 波次并行执行）+ DuckDB/Spark 双引擎路由 + MySQL 持久化 trace + Redis（降级安全）+ Next.js 前端，全部配置（含 LLM 与密钥）经设置中心热生效。
+自研 Multi-Agent Runtime（DAG 计划 + 波次并行执行）+ DuckDB/Spark 双引擎路由 + MySQL 持久化 trace + Redis 单例缓存（降级安全）+ Next.js 前端，全部配置（含 LLM 与密钥）经设置中心热生效。
 
 ## 2. 目录结构与职责
 
 ```
 AgentInsight/
 ├── backend/app/
-│   ├── main.py                # FastAPI 入口：路由装配、CORS、全局异常处理、请求日志、TaskBus 清扫器
-│   ├── api/                   # HTTP 层
+│   ├── main.py                # FastAPI 入口：路由装配、CORS 白名单、全局异常、请求日志、TaskBus 清扫、lifespan 清理
+│   ├── api/                   # HTTP 层（Settings/Models/Eval 已加鉴权）
 │   │   ├── agent.py           #   任务创建 + SSE（TaskBus：事件回放/上限500/TTL清扫）+ trace 落库
 │   │   ├── datasets.py        #   CSV 上传（≤10MB，413）→ 画像 → DuckDB 视图注册
 │   │   ├── resumes.py         #   简历上传（pdf/docx/txt）与查询
 │   │   ├── matches.py         #   匹配任务（复用 tasks+SSE 全链路）
-│   │   ├── models.py          #   模型配置 CRUD/激活/连通测试（Fernet 加密）
-│   │   ├── settings.py        #   功能开关读写（白名单键）
+│   │   ├── models.py          #   模型配置 CRUD/激活/连通测试（Fernet 加密 + 鉴权）
+│   │   ├── settings.py        #   功能开关读写（白名单键 + 鉴权）
 │   │   ├── crawler.py         #   JD 抓取/列表/导出 CSV
 │   │   └── health.py          #   三件套（Redis 挂了返回 degraded 不 500）
 │   ├── agent_runtime/         # ★ 自研运行时（不依赖 LangGraph/LangChain）

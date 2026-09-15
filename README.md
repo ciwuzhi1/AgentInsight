@@ -1,8 +1,37 @@
 # AgentInsight — 会看数据的 AI Agent（Multi-Agent 数据分析 + 简历岗位匹配）
 
-> **当前状态（2026-08-30）**：演示级完成——链路 A（NL2SQL 数据分析）/ 链路 B（多智能体简历匹配）/ 爬虫 / 设置中心 / 57 单测 / 实测延迟表全部落地并可用。**进入实用阶段的路线见 [ROADMAP.md](ROADMAP.md)**（七大缺口 P1~P7，约 2~3 周）。
+> **当前状态（2026-03-11）**：实用级优化完成——18 项全量优化落地（紧急 Bug 修复 / 安全加固 / 连接缓存优化 / 健壮性提升 / 前端体验）。77 单测全绿 + TypeScript 通过。
 
-上传一份 CSV，用中文提问，Agent 自动选引擎（DuckDB / Spark）、生成 SQL、执行、校验并画图；上传简历 + 勾选岗位，resume∥job **并行**的多智能体工作流输出匹配评分与技能缺口。全过程通过 SSE 实时推送执行时间线（含 plan/并行/retry 事件）。20 万行以内的 CSV 走 DuckDB 即席查询，超过阈值自动路由到容器里的 Spark 作业（暂缓启用，见下文）。
+上传一份 CSV，用中文提问，Agent 自动选引擎（DuckDB / Spark）、生成 SQL、执行、校验并画图；上传简历 + 勾选岗位，resume∥job **并行**的多智能体工作流输出匹配评分与技能缺口。全过程通过 SSE 实时推送执行时间线（含 plan/并行/retry 事件）。20 万行以内的 CSV 走 DuckDB 即席查询，超过阈值自动路由到容器里的 Spark 作业。
+
+## 全量优化（2026-03-11）
+
+### 紧急修复
+- **auth register NameError**：`username` 变量赋值顺序错误，注册接口完全不可用
+- **failed_final 误标**：executor 重试中的 error 事件被提前标记为终态失败
+
+### 安全加固
+- Settings / Models / Evaluation API 添加鉴权（之前无认证即可读写 LLM 密钥）
+- CORS 空值时拒绝启动（不再回退通配符 `*`）
+- APP_SECRET 缺失时 fail hard（不再生成临时密钥导致 JWT 失效）
+
+### 连接与缓存优化
+- **Redis 单例**：进程内共享连接，避免每次操作新建 TCP + ping（冷却期 5s 防雪崩）
+- **DuckDB LRU**：最多保留 10 个连接，淘汰最久未用的并 close
+- **LLM Client 缓存**：按 `(base_url, model)` 缓存实例，复用 HTTP 连接池
+- **NL2SQL 缓存**：相同 `(dataset, schema, query)` 复用 SQL，TTL 1h
+- **NL2SQL 错误反馈重试**：SQL 执行失败时把错误喂回 LLM 重新生成（最多 2 次）
+
+### 健壮性
+- 阻塞 MySQL 调用 async 化（`get_setting_async`）
+- 启动时清理残留幂等锁（重启后不再 409）
+- SSE 终态判定：只有 `terminal: true` 的 error 才结束事件流
+
+### 前端体验
+- ECharts 按需引入（bundle 减少 ~70%）
+- SSE 指数退避重连（最多 3 次）
+- 错误重点报错：重试中黄色警告、终态红色醒目
+- `useMemo` 优化时间线渲染
 
 ## 阶段2 新增（Multi-Agent 链路 B）
 
