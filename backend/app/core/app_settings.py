@@ -74,6 +74,13 @@ def get_setting(key: str, default: str | None = None) -> str:
     return value
 
 
+async def get_setting_async(key: str, default: str | None = None) -> str:
+    """异步版本：get_setting 的 to_thread 包装，避免阻塞事件循环。"""
+    import asyncio
+
+    return await asyncio.to_thread(get_setting, key, default)
+
+
 def set_setting(key: str, value: str, is_secret: bool = False) -> None:
     """写入设置（secret 加密落库）并刷新缓存。"""
     stored = encrypt_secret(value) if (is_secret and value) else value

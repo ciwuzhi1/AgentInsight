@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.api.auth import UserCtx, get_current_user
 from app.core.app_settings import get_all_masked, set_setting
 from app.core.logging import get_logger
 
@@ -30,13 +31,13 @@ class SettingUpdateIn(BaseModel):
 
 
 @router.get("")
-async def read_settings() -> dict:
+async def read_settings(user: UserCtx = Depends(get_current_user)) -> dict:
     """全量设置（secret 脱敏为 `***尾4位`，空值显示 ""）。"""
     return await asyncio.to_thread(get_all_masked)
 
 
 @router.put("")
-async def update_setting(body: SettingUpdateIn) -> dict:
+async def update_setting(body: SettingUpdateIn, user: UserCtx = Depends(get_current_user)) -> dict:
     """更新单个设置；非白名单键 400。"""
     if body.key not in ALLOWED_KEYS:
         raise HTTPException(

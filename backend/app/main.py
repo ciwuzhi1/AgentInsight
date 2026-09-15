@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.api import agent, auth, datasets, health
 from app.core.config import settings
-from app.core.logging import get_logger, get_request_id, set_request_id, set_request_id
+from app.core.logging import get_logger, get_request_id, set_request_id
 
 logger = get_logger(__name__)
 
@@ -33,19 +33,45 @@ async def lifespan(app: FastAPI):
             logger.info("数据库迁移完成", extra={"extra": {"applied": applied}})
     except Exception as exc:
         logger.warning("数据库迁移失败（不影响启动）: %s", exc)
+    # 清理残留幂等锁（重启后锁可能仍持有，阻止用户重新提交）
+    try:
+        from app.cache.redis import cleanup_stale_locks
+
+        cleaned = await cleanup_stale_locks()
+        if cleaned:
+            logger.info("启动清理残留锁 %d 个", cleaned)
+    except Exception as exc:
+        logger.warning("清理残留锁失败（不影响启动）: %s", exc)
     logger.info("AgentInsight backend 启动")
     yield
+    # 关闭时释放 Redis 单例连接 + DuckDB 连接
+    try:
+        from app.cache.redis import close_redis
+
+        await close_redis()
+    except Exception:
+        pass
+    try:
+        from app.data_engine.duckdb_engine import duckdb_engine
+
+        duckdb_engine.close_all()
+    except Exception:
+        pass
     logger.info("AgentInsight backend 已关闭")
 
 
 app = FastAPI(title="AgentInsight", lifespan=lifespan)
 
 # CORS 收紧（CONTRACTS3 §3.4）：白名单来源来自 config.CORS_ORIGINS（逗号分隔）
+# 生产环境禁止通配符：CORS_ORIGINS 为空时拒绝启动，防止跨域攻击
 _CORS_ORIGINS = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+if not _CORS_ORIGINS:
+    logger.error("CORS_ORIGINS 未配置，已拒绝启动。请在 .env 中设置 CORS_ORIGINS=http://localhost:3100")
+    raise RuntimeError("CORS_ORIGINS must not be empty in production")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_CORS_ORIGINS or ["*"],
+    allow_origins=_CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

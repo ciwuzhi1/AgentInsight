@@ -14,7 +14,7 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -79,10 +79,10 @@ class LoginRequest(BaseModel):
 @router.post("/register", status_code=201)
 async def register(body: RegisterRequest, request: Request) -> dict:
     """注册：用户名 3~32 字符唯一，密码 ≥6；重名 409；限流 5 次/分钟/IP。"""
+    username = body.username.strip()
     ok, wait = auth_limiter.allow(f"reg:{request.client.host if request.client else '?'}:{username}")
     if not ok:
         raise HTTPException(status_code=429, detail=f"尝试过于频繁，请 {wait}s 后重试")
-    username = body.username.strip()
     if not (3 <= len(username) <= 32):
         raise HTTPException(status_code=400, detail="用户名长度需为 3~32 字符")
     if len(body.password) < 6:

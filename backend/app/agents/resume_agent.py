@@ -13,24 +13,14 @@ import asyncio
 import re
 from pathlib import Path
 
-from app.agents.base import AgentResult, BaseAgent, EmitFn
+from app.agents.base import AgentResult, BaseAgent, EmitFn, get_setting_safe, safe_emit
 from app.agent_runtime.state import TaskState
-from app.cache.keys import resume_key, text_hash
+from app.cache.keys import bytes_hash, resume_key
 from app.cache.policies import TTL_RESUME
 from app.cache.redis import get_json, set_json
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-async def _safe_emit(emit: EmitFn | None, event: dict) -> None:
-    """emit 容错：兼容同步/异步 emit，任何异常吞掉（cache 事件不阻断主链路）。"""
-    try:
-        out = emit(event)  # type: ignore[operator]
-        if asyncio.iscoroutine(out):
-            await out
-    except Exception:
-        pass
 
 # LLM 结构化抽取的 system prompt：只输出一个 JSON 画像对象
 RESUME_PROFILE_SYSTEM_PROMPT = (
@@ -67,17 +57,6 @@ _EDU_LEVELS = ("博士", "硕士", "本科", "大专")
 _YEARS_RE = re.compile(r"(\d{1,2})\s*年")
 
 
-def _get_setting(key: str, default: str) -> str:
-    """读设置中心（A4 提供）；模块不存在/DB 不可用时回退默认值。"""
-    try:
-        from app.core.app_settings import get_setting
-
-        return get_setting(key, default)
-    except Exception as exc:  # noqa: BLE001 - 降级原则
-        logger.warning("app_settings 不可用，使用默认值 %s=%s: %s", key, default, exc)
-        return default
-
-
 # ---------- 文本抽取（阻塞，均在 to_thread 中调用） ----------
 
 def _pdf_text_pymupdf(path: str) -> str:
@@ -108,8 +87,8 @@ async def _extract_text(path: str) -> tuple[str, str]:
     """按后缀抽取纯文本，返回 (text, backend_used)。"""
     suffix = Path(path).suffix.lower()
     if suffix == ".pdf":
-        backend = _get_setting("parser_backend", "mineru_api")
-        token = _get_setting("mineru_api_token", "")
+        backend = await get_setting_safe("parser_backend", "mineru_api")
+        token = await get_setting_safe("mineru_api_token", "")
         if backend == "mineru_api" and token.strip():
             try:
                 from app.tools.mineru_client import parse_pdf
@@ -215,10 +194,10 @@ class ResumeAgent(BaseAgent):
         # 0. cache-aside（CONTRACTS3 §1.4）：文件字节指纹（不解析）→ Redis。
         #    HIT 直接用缓存画像，0 次文件解析 + 0 次 LLM。
         raw_bytes = await asyncio.to_thread(Path(str(path)).read_bytes)
-        key = resume_key(text_hash(raw_bytes.decode("latin-1")))
+        key = resume_key(bytes_hash(raw_bytes))
         cached = await get_json(key)
         hit = isinstance(cached, dict) and isinstance(cached.get("profile"), dict)
-        await _safe_emit(emit, {"type": "cache", "hit": hit, "key": key})
+        await safe_emit(emit, {"type": "cache", "hit": hit, "key": key})
 
         if hit:
             profile = cached["profile"]

@@ -28,7 +28,11 @@ _TOKEN_TTL_S = 7 * 24 * 3600  # exp 7d
 
 def get_app_secret() -> str:
     """取 JWT 签名密钥：优先 settings.APP_SECRET；为空则借 crypto 链路
-    （自动生成 Fernet key 并写回 .env，幂等）后从 .env 读回。"""
+    （自动生成 Fernet key 并写回 .env，幂等）后从 .env 读回。
+
+    安全加固：不再回退到进程内临时密钥（会导致重启后所有 JWT 失效、
+    多 worker 各自密钥不一致）。无法获取时直接抛异常。
+    """
     secret = (getattr(settings, "APP_SECRET", "") or "").strip()
     if secret:
         return secret
@@ -37,9 +41,14 @@ def get_app_secret() -> str:
 
         _get_fernet()  # 无 APP_SECRET 时自动生成并追加写回 .env（幂等）
         secret = _read_env_app_secret().strip()
-    except Exception as exc:  # pragma: no cover - crypto 故障不应阻断鉴权
-        logger.warning("读取 APP_SECRET 失败，使用进程内临时密钥: %s", exc)
-    return secret or secrets.token_hex(32)
+    except Exception as exc:
+        logger.error("APP_SECRET 获取失败，拒绝启动临时密钥: %s", exc)
+        raise RuntimeError(
+            "APP_SECRET 不可用：请在 .env 中设置 APP_SECRET，或确保 crypto 模块可写 .env"
+        ) from exc
+    if not secret:
+        raise RuntimeError("APP_SECRET 为空：请在 .env 中设置 APP_SECRET")
+    return secret
 
 
 # ---------- 密码（单向 PBKDF2，不用 Fernet） ----------

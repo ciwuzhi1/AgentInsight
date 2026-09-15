@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import re
 
-from app.agents.base import AgentResult, BaseAgent, EmitFn
+from app.agents.base import AgentResult, BaseAgent, EmitFn, safe_emit
 from app.agent_runtime.state import TaskState
 from app.cache.keys import job_key, text_hash
 from app.cache.policies import TTL_JOB
@@ -20,16 +20,6 @@ from app.cache.redis import get_json, set_json
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
-
-
-async def _safe_emit(emit: EmitFn | None, event: dict) -> None:
-    """emit 容错：兼容同步/异步 emit，任何异常吞掉（cache 事件不阻断主链路）。"""
-    try:
-        out = emit(event)  # type: ignore[operator]
-        if asyncio.iscoroutine(out):
-            await out
-    except Exception:
-        pass
 
 # LLM 结构化抽取的 system prompt：只输出一个 JSON 对象
 JOB_PROFILE_SYSTEM_PROMPT = (
@@ -132,7 +122,7 @@ class JobAgent(BaseAgent):
             and isinstance(cached.get("jobs"), list)
             and bool(cached["jobs"])
         )
-        await _safe_emit(emit, {"type": "cache", "hit": hit, "key": key})
+        await safe_emit(emit, {"type": "cache", "hit": hit, "key": key})
 
         if hit:
             profiled = cached["jobs"]

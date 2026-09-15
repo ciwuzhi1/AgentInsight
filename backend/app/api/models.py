@@ -8,9 +8,10 @@ import asyncio
 import time
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api.auth import UserCtx, get_current_user
 from app.core.crypto import decrypt_secret, encrypt_secret
 from app.core.llm import LLMError, OpenAICompatibleClient
 from app.core.logging import get_logger
@@ -59,13 +60,13 @@ def _public_view(row: dict) -> dict:
 
 
 @router.get("")
-async def list_models() -> list[dict]:
+async def list_models(user: UserCtx = Depends(get_current_user)) -> list[dict]:
     """模型配置列表（api_key 脱敏）。"""
     return await asyncio.to_thread(lambda: [_public_view(r) for r in list_model_configs()])
 
 
 @router.post("")
-async def create_model(body: ModelConfigIn) -> dict:
+async def create_model(body: ModelConfigIn, user: UserCtx = Depends(get_current_user)) -> dict:
     """新增模型配置（api_key 加密落库，默认不激活）。"""
     cfg = {
         "id": uuid.uuid4().hex,
@@ -82,7 +83,7 @@ async def create_model(body: ModelConfigIn) -> dict:
 
 
 @router.put("/{model_id}/activate")
-async def activate(model_id: str) -> dict:
+async def activate(model_id: str, user: UserCtx = Depends(get_current_user)) -> dict:
     """激活指定模型（事务内先清后设，保证唯一 active）。"""
     rows = await asyncio.to_thread(list_model_configs)
     if not any(r["id"] == model_id for r in rows):
@@ -93,7 +94,7 @@ async def activate(model_id: str) -> dict:
 
 
 @router.delete("/{model_id}")
-async def remove(model_id: str) -> dict:
+async def remove(model_id: str, user: UserCtx = Depends(get_current_user)) -> dict:
     """删除模型配置；不存在 404。"""
     rows = await asyncio.to_thread(list_model_configs)
     if not any(r["id"] == model_id for r in rows):
@@ -103,7 +104,7 @@ async def remove(model_id: str) -> dict:
 
 
 @router.post("/{model_id}/test")
-async def test_model(model_id: str) -> dict:
+async def test_model(model_id: str, user: UserCtx = Depends(get_current_user)) -> dict:
     """连通性测试：临时构造 client 发 1 次 JSON 请求，返回 ok/latency_ms/error。"""
     rows = await asyncio.to_thread(list_model_configs)
     row = next((r for r in rows if r["id"] == model_id), None)

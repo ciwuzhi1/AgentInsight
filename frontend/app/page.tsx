@@ -1,9 +1,29 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import * as echarts from "echarts";
+// ECharts 按需引入：只注册 bar/line + 必要组件，减少 bundle ~70%
+import * as echarts from "echarts/core";
+import { BarChart, LineChart } from "echarts/charts";
+import {
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  DatasetComponent,
+} from "echarts/components";
+import { CanvasRenderer } from "echarts/renderers";
 import { getToken, installAuthFetch, sseUrl, UserChip } from "./auth-client";
+
+// 注册 ECharts 组件（只需一次）
+echarts.use([
+  BarChart,
+  LineChart,
+  GridComponent,
+  TooltipComponent,
+  LegendComponent,
+  DatasetComponent,
+  CanvasRenderer,
+]);
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8100";
 
@@ -262,7 +282,7 @@ function ChartBox({
   rows: (string | number | null)[][];
 }) {
   const divRef = useRef<HTMLDivElement>(null);
-  const instRef = useRef<echarts.ECharts | null>(null);
+  const instRef = useRef<ReturnType<typeof echarts.init> | null>(null);
 
   // 挂载时 init 一次，卸载时 dispose
   useEffect(() => {
@@ -705,7 +725,7 @@ function TimelinePanel({
   events: SseEvent[];
   running: boolean;
 }) {
-  const model = buildTimeline(events);
+  const model = useMemo(() => buildTimeline(events), [events]);
   const empty =
     model.steps.length === 0 && model.items.length === 0;
   if (empty && !running) return null;
@@ -1580,7 +1600,8 @@ export default function Home() {
   const [askError, setAskError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
-  const reconnectRef = useRef<boolean>(true); // 每个任务允许一次 SSE 断线自动重连
+  const reconnectCountRef = useRef<number>(0); // 已重连次数
+  const maxReconnects = 3; // 最多重连 3 次
 
   useEffect(() => {
     // 未登录直接去登录页（fetch 补丁也会兜底 401 跳转）
@@ -1625,17 +1646,18 @@ export default function Home() {
       setRunning(false);
     });
 
-    // 断线自动重连一次（后端有 15s 心跳，正常不会触发；触发时多为网络抖动）
+    // 断线自动重连（指数退避，最多 3 次）
     es.onerror = () => {
       es.close();
-      if (reconnectRef.current) {
-        reconnectRef.current = false;
-        setOkMsg("事件流中断，正在重连…");
-        setTimeout(() => subscribe(taskId), 1500);
+      if (reconnectCountRef.current < maxReconnects) {
+        reconnectCountRef.current += 1;
+        const delay = Math.min(1000 * 2 ** (reconnectCountRef.current - 1), 8000);
+        setOkMsg(`事件流中断，${delay / 1000}s 后重连（第 ${reconnectCountRef.current}/${maxReconnects} 次）…`);
+        setTimeout(() => subscribe(taskId), delay);
         return;
       }
       setRunning(false);
-      setAskError("事件流连接中断（后端可能未启动或已断开）");
+      setAskError("事件流连接中断（重连次数已用尽，请刷新页面）");
     };
   }
 
@@ -1666,7 +1688,7 @@ export default function Home() {
       }
       if (!res.ok) throw await readError(res);
       const { task_id } = (await res.json()) as { task_id: string };
-      reconnectRef.current = true;
+      reconnectCountRef.current = 0;
       subscribe(task_id);
     } catch (e) {
       setAskError(errText(e));
@@ -1698,7 +1720,7 @@ export default function Home() {
       }
       if (!res.ok) throw await readError(res);
       const { task_id } = (await res.json()) as { task_id: string };
-      reconnectRef.current = true;
+      reconnectCountRef.current = 0;
       subscribe(task_id);
     } catch (e) {
       setAskError(errText(e));

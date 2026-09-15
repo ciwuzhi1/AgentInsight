@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import time
 
-from app.agents.base import AgentResult, BaseAgent, EmitFn
+from app.agents.base import AgentResult, BaseAgent, EmitFn, get_setting_safe
 from app.agent_runtime.state import TaskState
 from app.core.logging import get_logger
 
@@ -53,17 +53,6 @@ _EDU_SCORE = {"博士": 100, "硕士": 100, "本科": 80, "大专": 60}
 
 # JD 经验要求：如 "3年" / "3 年以上"
 _YEARS_RE = re.compile(r"(\d{1,2})\s*年")
-
-
-def _get_setting(key: str, default: str) -> str:
-    """读设置中心（A4 提供）；模块不存在/DB 不可用时回退默认值。"""
-    try:
-        from app.core.app_settings import get_setting
-
-        return get_setting(key, default)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("app_settings 不可用，使用默认值 %s=%s: %s", key, default, exc)
-        return default
 
 
 def _norm(skill: str) -> str:
@@ -223,7 +212,7 @@ async def _llm_interpretation(
     profile: dict, score: int, dimensions: dict, skill_gap: list[str]
 ) -> str | None:
     """真模型解读；开关关闭/mock/异常返回 None（回模板）。"""
-    if _get_setting("match_llm_enabled", "true") != "true":
+    if await get_setting_safe("match_llm_enabled", "true") != "true":
         return None
     try:
         from app.core.llm import MockLLMClient, get_llm_client

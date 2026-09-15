@@ -50,23 +50,58 @@ def _sql_timeout() -> float:
 
 
 class DuckDBEngine(AnalysisEngine):
-    """每个 dataset_id 一个独立连接，视图按约定命名。"""
+    """每个 dataset_id 一个独立连接，LRU 淘汰防止内存泄漏。
+
+    最多保留 _MAX_CONNS 个活跃连接，超出时淘汰最久未用的并 close。
+    """
 
     name = "duckdb"
+    _MAX_CONNS = 10  # 最大并发连接数
 
     def __init__(self) -> None:
         self._conns: dict[str, duckdb.DuckDBPyConnection] = {}
         self._tables: dict[str, str] = {}
+        self._last_used: dict[str, float] = {}  # dataset_id -> monotonic timestamp
+
+    def _evict_lru(self) -> None:
+        """淘汰最久未用的连接，直到数量低于 _MAX_CONNS。"""
+        while len(self._conns) >= self._MAX_CONNS:
+            # 找最久未用的
+            oldest_id = min(self._last_used, key=self._last_used.get)
+            self._close_conn(oldest_id)
+            logger.info("DuckDB LRU 淘汰 dataset=%s（活跃连接 %d）", oldest_id, len(self._conns))
+
+    def _close_conn(self, dataset_id: str) -> None:
+        """关闭并移除指定连接。"""
+        conn = self._conns.pop(dataset_id, None)
+        self._tables.pop(dataset_id, None)
+        self._last_used.pop(dataset_id, None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def _conn(self, dataset_id: str) -> duckdb.DuckDBPyConnection:
         conn = self._conns.get(dataset_id)
-        if conn is None:
-            conn = duckdb.connect()
-            # 资源上限（CONTRACTS2 §5）：限制内存与线程防止单连接吃满宿主机
-            conn.execute("SET memory_limit='1GB'")
-            conn.execute("SET threads=4")
-            self._conns[dataset_id] = conn
+        if conn is not None:
+            self._last_used[dataset_id] = time.monotonic()
+            return conn
+        # 新建前先淘汰
+        self._evict_lru()
+        conn = duckdb.connect()
+        # 资源上限（CONTRACTS2 §5）：限制内存与线程防止单连接吃满宿主机
+        conn.execute("SET memory_limit='1GB'")
+        conn.execute("SET threads=4")
+        self._conns[dataset_id] = conn
+        self._last_used[dataset_id] = time.monotonic()
         return conn
+
+    def close_all(self) -> None:
+        """关闭所有连接（lifespan shutdown 调用）。"""
+        for dataset_id in list(self._conns.keys()):
+            self._close_conn(dataset_id)
+        logger.info("DuckDB 所有连接已关闭")
 
     def register_dataset(self, dataset_id: str, name: str, path: str) -> dict:
         """把 CSV 注册为视图并返回 schema；重复注册覆盖旧视图。"""
