@@ -8,12 +8,15 @@ export function InputBar({
   onSend,
   disabled = false,
   placeholder = "输入你的问题…",
+  defaultValue = "",
 }: {
   onSend: (text: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  /** 初始文本（配合 key 变化实现外部填入） */
+  defaultValue?: string;
 }) {
-  const [value, setValue] = useState("");
+  const [value, setValue] = useState(defaultValue);
   const canSend = !disabled && value.trim().length > 0;
 
   function submit() {
