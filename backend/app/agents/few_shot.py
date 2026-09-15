@@ -1,20 +1,39 @@
 """Few-shot 检索：从历史成功 SQL 中找相似问题作为 LLM 示例。"""
 from __future__ import annotations
 
+import json
 import math
+import re
 from collections import Counter
+from pathlib import Path
 
 # 进程内历史库：question -> sql 映射，LRU 上限 500
 _history: list[dict] = []  # [{"question": str, "sql": str, "explanation": str}]
 _MAX_HISTORY = 500
 
+# 持久化文件位置（相对 backend 根目录）
+_HISTORY_FILE = Path(__file__).resolve().parents[2] / "data" / "fewshot_history.json"
+
 
 def _tokenize(text: str) -> list[str]:
-    """简单分词：按空格/标点切分 + 中文字符逐字。"""
-    import re
-    # 英文单词 + 中文单字
-    tokens = re.findall(r'[a-zA-Z]+|[\u4e00-\u9fff]', text.lower())
-    return tokens
+    """分词：英文单词 + 中文单字 + 中文双字词(bigram)。
+
+    bigram 能显著提升中文短语（如「销售额」「按地区」）的相似度匹配。
+    """
+    tokens = re.findall(r'[a-zA-Z]+|[一-鿿]', text.lower())
+    # 在连续中文字符序列上生成 bigram（join 为字符串保证可哈希）
+    bigrams: list[str] = []
+    run: list[str] = []
+    for tok in tokens:
+        if '一' <= tok <= '鿿':
+            run.append(tok)
+        else:
+            if len(run) >= 2:
+                bigrams.extend(''.join(run[i:i+2]) for i in range(len(run) - 1))
+            run = []
+    if len(run) >= 2:
+        bigrams.extend(''.join(run[i:i+2]) for i in range(len(run) - 1))
+    return tokens + bigrams
 
 
 def _tfidf_vector(text: str, vocab: dict[str, float]) -> dict[str, float]:
@@ -88,6 +107,40 @@ def add_to_history(question: str, sql: str, explanation: str) -> None:
     # LRU 淘汰
     if len(_history) > _MAX_HISTORY:
         _history = _history[-_MAX_HISTORY:]
+
+
+def export_history(path: Path | str | None = None) -> Path:
+    """将历史库导出为 JSON 文件。返回写入路径。"""
+    target = Path(path) if path else _HISTORY_FILE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps(_history, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return target
+
+
+def import_history(path: Path | str | None = None) -> int:
+    """从 JSON 文件加载历史库，返回加载条数。文件不存在或损坏时返回 0。"""
+    global _history
+    source = Path(path) if path else _HISTORY_FILE
+    if not source.exists():
+        return 0
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return 0
+    if not isinstance(data, list):
+        return 0
+    # 只保留合法条目
+    loaded = [
+        item for item in data
+        if isinstance(item, dict)
+        and isinstance(item.get("question"), str)
+        and isinstance(item.get("sql"), str)
+    ]
+    _history = loaded[-_MAX_HISTORY:]
+    return len(_history)
 
 
 def format_few_shot_prompt(query: str, schema_str: str, table: str, top_k: int = 3) -> str:

@@ -3,12 +3,18 @@ from __future__ import annotations
 
 # 复杂度级别
 SIMPLE = "simple"      # 单聚合/单筛选，跳过 validator
+MEDIUM = "medium"      # 多聚合词或含筛选条件，走完整链路（暂同 NORMAL）
 NORMAL = "normal"      # 默认链路
 COMPLEX = "complex"    # 多表/嵌套/对比，增强校验
 
 # 简单问题特征：单聚合词 + 单维度
 _SIMPLE_PATTERNS = [
     "总计", "总和", "平均", "最多", "最少", "数量", "总数", "总",
+]
+
+# 筛选/过滤条件特征
+_FILTER_PATTERNS = [
+    "筛选", "过滤", "其中", "只看", "只要", "仅", "条件", "限定",
 ]
 
 # 复杂问题特征
@@ -27,13 +33,16 @@ def assess_complexity(query: str) -> str:
         if pattern in q:
             return COMPLEX
 
-    # 简单特征：短问题 + 含聚合词 + 无复杂词
-    if len(query) < 20:
-        for pattern in _SIMPLE_PATTERNS:
-            if pattern in q:
-                # 确认没有复杂特征
-                has_complex = any(p in q for p in _COMPLEX_PATTERNS)
-                if not has_complex:
-                    return SIMPLE
+    # 统计聚合词命中数与筛选条件
+    agg_count = sum(1 for p in _SIMPLE_PATTERNS if p in q)
+    has_filter = any(p in q for p in _FILTER_PATTERNS)
+
+    # 简单特征：短问题 + 恰好单聚合词 + 无筛选条件
+    if len(query) < 20 and agg_count == 1 and not has_filter:
+        return SIMPLE
+
+    # 中等特征：多个聚合词，或含筛选/过滤条件
+    if agg_count >= 2 or has_filter:
+        return MEDIUM
 
     return NORMAL

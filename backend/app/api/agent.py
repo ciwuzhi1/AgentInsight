@@ -19,7 +19,7 @@ from app.api.auth import UserCtx, get_current_user, get_current_user_flex
 from app.api.datasets import table_name_for
 from app.cache.keys import text_hash
 from app.cache.redis import acquire_lock, release_lock
-from app.core.logging import get_logger, set_task_id
+from app.core.logging import get_logger
 from app.core.rate_limit import task_limiter
 from app.persistence.mysql import (
     get_dataset,

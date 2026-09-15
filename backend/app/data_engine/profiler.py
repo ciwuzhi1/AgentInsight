@@ -12,6 +12,8 @@ _SAMPLE_BYTES = 64 * 1024
 
 @dataclass
 class DatasetProfile:
+    """CSV 数据集画像：路径、大小、列名、行数估算。"""
+
     path: str
     size_bytes: int
     size_mb: float

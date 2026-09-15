@@ -47,6 +47,7 @@ def _mask(key_enc: str) -> str:
 
 
 def _public_view(row: dict) -> dict:
+    """把模型配置行转为对外视图（api_key 脱敏）。"""
     return {
         "id": row["id"],
         "name": row.get("name"),

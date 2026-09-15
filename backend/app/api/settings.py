@@ -16,6 +16,7 @@ logger = get_logger(__name__)
 # 可写键白名单（与内置默认表一致）；secret 键写库前自动加密
 ALLOWED_KEYS = {
     "match_llm_enabled",
+    "report_llm_enabled",
     "llm_fallback_mock",
     "parser_backend",
     "sql_timeout",

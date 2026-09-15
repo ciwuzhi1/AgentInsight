@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/health", tags=["health"])
 
 @router.get("")
 async def health() -> dict:
+    """简易健康探针：进程存活即返回 ok。"""
     return {"status": "ok"}
 
 
@@ -78,3 +79,32 @@ async def health_redis() -> dict:
     if client is None:
         return {"redis": "degraded"}
     return {"redis": "up"}
+
+
+@router.get("/duckdb")
+async def health_duckdb() -> dict:
+    """DuckDB 探活：进程内引擎 + 当前活跃连接数（LRU 上限内）。"""
+    try:
+        from app.data_engine.duckdb_engine import duckdb_engine
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"duckdb down: {exc}") from exc
+
+    def _ping() -> int:
+        import duckdb
+
+        conn = duckdb.connect()
+        try:
+            conn.execute("SELECT 1").fetchone()
+        finally:
+            conn.close()
+        return duckdb_engine.connection_count()
+
+    try:
+        connections = await asyncio.to_thread(_ping)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"duckdb down: {exc}") from exc
+    return {
+        "duckdb": "up",
+        "connections": connections,
+        "max_connections": duckdb_engine._MAX_CONNS,
+    }

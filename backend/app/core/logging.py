@@ -19,6 +19,8 @@ task_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("task_id", def
 
 
 class _JsonFormatter(logging.Formatter):
+    """将日志记录格式化为单行 JSON（含 request_id / task_id 上下文）。"""
+
     def format(self, record: logging.LogRecord) -> str:
         payload: dict = {
             "ts": datetime.now().isoformat(timespec="milliseconds"),
@@ -40,14 +42,17 @@ class _JsonFormatter(logging.Formatter):
 
 
 def set_request_id(value: str) -> None:
+    """设置当前请求的 request_id（contextvar，供日志自动注入）。"""
     request_id_var.set(value)
 
 
 def get_request_id() -> str:
+    """读取当前请求的 request_id；未设置时返回 "-"。"""
     return request_id_var.get()
 
 
 def set_task_id(value: str) -> None:
+    """设置当前任务的 task_id（contextvar，供日志自动注入）。"""
     task_id_var.set(value)
 
 

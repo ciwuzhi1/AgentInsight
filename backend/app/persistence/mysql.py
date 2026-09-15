@@ -144,6 +144,12 @@ def get_dataset(dataset_id: str) -> dict | None:
     return row
 
 
+def delete_dataset(dataset_id: str) -> None:
+    """删除数据集元数据（文件与 DuckDB 视图由 API 层清理）。"""
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM datasets WHERE id = %s", (dataset_id,))
+
+
 # ---------- tasks ----------
 
 def insert_task(
@@ -246,11 +252,14 @@ def upsert_job(
         return "inserted" if cur.rowcount == 1 else "skipped"
 
 
-def list_jobs(limit: int = 20) -> list[dict]:
-    """按时间倒序列出岗位。"""
-    sql = "SELECT id, title, company, location, skills, description, source_url, crawled_at FROM jobs ORDER BY id DESC LIMIT %s"
+def list_jobs(limit: int = 20, offset: int = 0) -> list[dict]:
+    """按时间倒序分页列出岗位。"""
+    sql = (
+        "SELECT id, title, company, location, skills, description, source_url, crawled_at "
+        "FROM jobs ORDER BY id DESC LIMIT %s OFFSET %s"
+    )
     with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, (limit,))
+        cur.execute(sql, (int(limit), int(offset)))
         return list(cur.fetchall())
 
 

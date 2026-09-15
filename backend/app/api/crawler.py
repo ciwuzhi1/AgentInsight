@@ -24,6 +24,7 @@ from app.crawler.parser import (
 )
 from app.persistence.mysql import (
     PersistenceError,
+    count_jobs,
     fetch_jobs_for_export,
     list_jobs,
 )
@@ -31,6 +32,8 @@ from app.persistence.mysql import (
 logger = get_logger("app.crawler")
 
 router = APIRouter(prefix="/api/crawler", tags=["crawler"])
+# 独立 /api/jobs 路由（岗位列表，分页）；与 crawler 运行控制分离
+jobs_router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 # 每次请求后的礼貌间隔（秒）
 CRAWL_INTERVAL = 0.5
@@ -112,9 +115,33 @@ async def get_jobs(limit: int = Query(default=20, ge=1, le=500)) -> dict:
     return {"count": len(rows), "items": rows}
 
 
+@jobs_router.get("")
+async def list_jobs_paginated(
+    limit: int = Query(default=20, ge=1, le=100),
+    page: int = Query(default=1, ge=1),
+) -> dict:
+    """岗位列表（分页：page 从 1 起；按 id 倒序）。"""
+    limit_n = max(1, min(limit, 100))
+    page_n = max(1, page)
+    offset = (page_n - 1) * limit_n
+    try:
+        rows = await asyncio.to_thread(list_jobs, limit_n, offset)
+        total = await asyncio.to_thread(count_jobs)
+    except PersistenceError as exc:
+        raise HTTPException(status_code=503, detail=f"MySQL 不可用: {exc}") from exc
+    return {
+        "page": page_n,
+        "limit": limit_n,
+        "count": len(rows),
+        "total": total,
+        "items": rows,
+        "has_more": offset + len(rows) < total,
+    }
+
+
 @router.post("/export")
 async def export_jobs() -> dict:
-    """导出 jobs 表到 CSV（供 Spark job 消费）。"""
+    """导出 jobs 表到 CSV。"""
     try:
         rows = await asyncio.to_thread(fetch_jobs_for_export)
     except PersistenceError as exc:

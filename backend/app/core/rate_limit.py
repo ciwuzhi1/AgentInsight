@@ -10,6 +10,8 @@ from collections import defaultdict, deque
 
 
 class RateLimiter:
+    """进程内滑动窗口限流器（线程安全）。"""
+
     def __init__(self, max_calls: int, window_s: float) -> None:
         self.max_calls = max_calls
         self.window_s = window_s
@@ -43,6 +45,7 @@ class RedisRateLimiter:
     """基于 Redis ZSET 的分布式限流（多实例共享额度）；Redis 不可用时自动降级放行。"""
 
     def __init__(self, max_calls: int, window_s: float, get_client) -> None:
+        """get_client 为零参异步函数，返回 redis.asyncio 客户端（或 None）。"""
         self.max_calls = max_calls
         self.window_s = window_s
         self._get_client = get_client  # 延迟获取 redis.asyncio 客户端的零参函数
@@ -73,8 +76,11 @@ class RedisRateLimiter:
             return True, 0.0  # Redis 故障降级放行
 
 
-def build_limiters():
-    """工厂：REDIS_RATE_LIMIT=true 且 Redis 可用 → 分布式限流；否则进程内。"""
+def build_limiters() -> tuple:
+    """工厂：REDIS_RATE_LIMIT=true 且 Redis 可用 → 分布式限流；否则进程内。
+
+    返回 (auth_limiter, task_limiter) 二元组。
+    """
     import os
     from app.cache.redis import get_redis
 

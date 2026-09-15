@@ -203,6 +203,9 @@ def test_sse_event_stream_format(client, auth_headers):
             continue
         payload = json.loads(line[len("data: "):])
         assert isinstance(payload, dict)
+        # 心跳消息 {} 没有 type 字段，跳过
+        if not payload:
+            continue
         assert "type" in payload
         types.append(payload["type"])
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
@@ -11,6 +12,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.data_engine.profiler import profile_csv
 from app.data_engine.router import choose_engine
+from app.persistence.mysql import delete_dataset, get_dataset
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
 logger = get_logger(__name__)
@@ -116,3 +118,42 @@ async def upload_dataset(
         "size_mb": profile.size_mb,
         "engine_hint": engine_hint,
     }
+
+
+@router.delete("/{dataset_id}")
+async def remove_dataset(dataset_id: str, user: UserCtx = Depends(get_current_user)) -> dict:
+    """删除数据集：属主校验 → 注销 DuckDB 视图 → 删文件 → 删 MySQL 登记。
+
+    隔离（CONTRACTS3 §3.4）：user_id ∈ {NULL(公共遗留), 当前用户} 才可删，否则 404。
+    清理失败不阻断删除（降级原则），只告警。
+    """
+    row = await asyncio.to_thread(get_dataset, dataset_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"数据集不存在: {dataset_id}")
+    if row.get("user_id") is not None and row["user_id"] != user.user_id:
+        raise HTTPException(status_code=404, detail=f"数据集不存在: {dataset_id}")
+
+    # 1) 注销 DuckDB 视图并关闭连接
+    try:
+        from app.data_engine.duckdb_engine import duckdb_engine
+
+        await asyncio.to_thread(duckdb_engine.unregister_dataset, dataset_id)
+    except Exception as exc:
+        logger.warning("DuckDB 注销失败 dataset=%s: %s", dataset_id, exc)
+
+    # 2) 删除上传文件
+    path = row.get("path")
+    if path:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("数据集文件删除失败 dataset=%s path=%s: %s", dataset_id, path, exc)
+
+    # 3) 删除 MySQL 登记
+    try:
+        await asyncio.to_thread(delete_dataset, dataset_id)
+    except Exception as exc:
+        logger.warning("数据集落库删除失败 dataset=%s: %s", dataset_id, exc)
+        raise HTTPException(status_code=500, detail="数据集删除失败") from exc
+
+    return {"dataset_id": dataset_id, "deleted": True}
