@@ -2,28 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-// ECharts 按需引入：只注册 bar/line + 必要组件，减少 bundle ~70%
-import * as echarts from "echarts/core";
-import { BarChart, LineChart } from "echarts/charts";
-import {
-  GridComponent,
-  TooltipComponent,
-  LegendComponent,
-  DatasetComponent,
-} from "echarts/components";
-import { CanvasRenderer } from "echarts/renderers";
+import TimelineCard, {
+  type StepCard,
+  type TimelineItem,
+} from "@/components/TimelineCard";
+import ResultCard, {
+  ScoreRing,
+  type FinalResult,
+} from "@/components/ResultCard";
 import { getToken, installAuthFetch, sseUrl, UserChip } from "./auth-client";
-
-// 注册 ECharts 组件（只需一次）
-echarts.use([
-  BarChart,
-  LineChart,
-  GridComponent,
-  TooltipComponent,
-  LegendComponent,
-  DatasetComponent,
-  CanvasRenderer,
-]);
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8100";
 
@@ -57,58 +44,13 @@ type DatasetInfo = {
 
 type SseEvent = { type: string } & Record<string, unknown>;
 
-type TimelineItem = {
-  kind: "agent" | "engine" | "sql" | "error" | "state" | "cache";
-  agent?: string;
-  status?: string;
-  latency_ms?: number;
-  engine?: string;
-  rows_estimate?: number;
-  reason?: string;
-  sql?: string;
-  explanation?: string;
-  code?: string;
-  message?: string;
-  state_status?: string;
-  hit?: boolean;
-  key?: string;
-};
-
 /* plan 事件里的一个步骤声明 */
 type PlanStepInfo = { id: string; agent: string; depends_on: string[] };
-
-/* 基于 plan 构建的步骤卡（agent_start/end 按 step id 配对） */
-type StepCard = {
-  step_id: string;
-  agent: string;
-  depends_on: string[];
-  status: "pending" | "running" | "ok" | "error" | "skipped";
-  statusText?: string;
-  latency_ms?: number;
-  retries: number;
-};
 
 type TimelineModel = {
   hasPlan: boolean;
   steps: StepCard[];
   items: TimelineItem[];
-};
-
-type ChartSpec = { type: string; x_field: string; y_fields: string[] };
-
-/* 数据形态 final（CONTRACTS.md §6） */
-type FinalResult = {
-  task_id: string;
-  query: string;
-  engine: string;
-  sql: string | null;
-  explanation: string;
-  columns: string[];
-  rows: (string | number | null)[][];
-  row_count: number;
-  truncated: boolean;
-  chart: ChartSpec | null;
-  elapsed_ms: number;
 };
 
 /* 匹配形态 final（CONTRACTS2 §2.1） */
@@ -259,88 +201,25 @@ function Card({
   return (
     <section
       id={id}
-      className="scroll-mt-20 rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-black/20 sm:p-6"
+      className="scroll-mt-20 glass p-5 sm:p-6"
     >
-      <div className="mb-5 flex items-start gap-3 border-b border-slate-800/70 pb-4">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-xl">
+      <div className="mb-5 flex items-start gap-3 border-b border-[var(--border-glass)] pb-4">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--primary)]/10 text-xl">
           {icon}
         </span>
         <div>
-          <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold text-slate-100">
-            <span className="font-mono text-xs font-bold tracking-widest text-sky-400">
+          <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold text-[var(--text-primary)]">
+            <span className="font-mono text-xs font-bold tracking-widest text-[var(--primary-light)]">
               {no}
             </span>
             {title}
           </h2>
-          <p className="mt-0.5 text-sm text-slate-400">{desc}</p>
+          <p className="mt-0.5 text-sm text-[var(--text-secondary)]">{desc}</p>
         </div>
       </div>
       {children}
     </section>
   );
-}
-
-/* ---------- 图表：ECharts 由 React 驱动 ---------- */
-
-function ChartBox({
-  chart,
-  columns,
-  rows,
-}: {
-  chart: ChartSpec;
-  columns: string[];
-  rows: (string | number | null)[][];
-}) {
-  const divRef = useRef<HTMLDivElement>(null);
-  const instRef = useRef<ReturnType<typeof echarts.init> | null>(null);
-
-  // 挂载时 init 一次，卸载时 dispose
-  useEffect(() => {
-    if (!divRef.current) return;
-    const inst = echarts.init(divRef.current, "dark");
-    instRef.current = inst;
-    const onResize = () => inst.resize();
-    window.addEventListener("resize", onResize);
-    return () => {
-      window.removeEventListener("resize", onResize);
-      inst.dispose();
-      instRef.current = null;
-    };
-  }, []);
-
-  // 数据变化时把 option 塞给图表实例
-  useEffect(() => {
-    const inst = instRef.current;
-    if (!inst) return;
-    const xIdx = columns.indexOf(chart.x_field);
-    const series = chart.y_fields.map((yf) => {
-      const yIdx = columns.indexOf(yf);
-      return {
-        name: yf,
-        type: chart.type === "line" ? ("line" as const) : ("bar" as const),
-        data: rows.map((r) => {
-          const v = yIdx >= 0 ? r[yIdx] : null;
-          const n = typeof v === "number" ? v : Number(v);
-          return Number.isFinite(n) ? n : 0;
-        }),
-      };
-    });
-    inst.setOption({
-      backgroundColor: "transparent",
-      tooltip: { trigger: "axis" },
-      legend: chart.y_fields.length > 1 ? {} : undefined,
-      grid: { left: 48, right: 24, top: 36, bottom: 48 },
-      xAxis: {
-        type: "category",
-        data: rows.map((r) => (xIdx >= 0 ? String(r[xIdx] ?? "") : "")),
-        axisLabel: { color: "#94a3b8" },
-      },
-      yAxis: { type: "value", axisLabel: { color: "#94a3b8" } },
-      series,
-    });
-  }, [chart, columns, rows]);
-
-  return <div ref={divRef} className="h-80 w-full" />;
 }
 
 /* ---------- 区块① 数据集上传 ---------- */
@@ -693,41 +572,6 @@ function buildTimeline(events: SseEvent[]): TimelineModel {
   return { hasPlan, steps, items };
 }
 
-function StepCardView({ card }: { card: StepCard }) {
-  const borderTone =
-    card.status === "running"
-      ? "border-amber-500/40"
-      : card.status === "ok"
-        ? "border-emerald-500/30"
-        : card.status === "error"
-          ? "border-red-500/40"
-          : "border-slate-800";
-  return (
-    <div className={`rounded-lg border ${borderTone} bg-slate-800/40 px-4 py-3`}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-slate-300">
-          🤖 <span className="font-mono">{card.agent}</span>
-        </span>
-        {card.status === "pending" && <Badge>待执行</Badge>}
-        {card.status === "running" && <Badge tone="amber">运行中…</Badge>}
-        {card.status === "ok" && <Badge tone="green">完成</Badge>}
-        {card.status === "error" && (
-          <Badge tone="red">{card.statusText ?? "失败"}</Badge>
-        )}
-        {card.status === "skipped" && <Badge tone="slate">已跳过</Badge>}
-        {card.retries > 0 && <Badge tone="amber">重试 ×{card.retries}</Badge>}
-      </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-        <span className="font-mono">step: {card.step_id}</span>
-        {card.depends_on.length > 0 && (
-          <span>依赖: {card.depends_on.join("、")}</span>
-        )}
-        {card.latency_ms !== undefined && <span>{card.latency_ms} ms</span>}
-      </div>
-    </div>
-  );
-}
-
 function TimelinePanel({
   events,
   running,
@@ -736,262 +580,17 @@ function TimelinePanel({
   running: boolean;
 }) {
   const model = useMemo(() => buildTimeline(events), [events]);
-  const empty =
-    model.steps.length === 0 && model.items.length === 0;
-  if (empty && !running) return null;
-
-  // depends_on 相同的相邻步骤是并行关系 → 同一波次，渲染为多列
-  const waves: StepCard[][] = [];
-  for (const card of model.steps) {
-    const last = waves[waves.length - 1];
-    const key = card.depends_on.join(",");
-    if (last && last[0].depends_on.join(",") === key) {
-      last.push(card);
-    } else {
-      waves.push([card]);
-    }
-  }
-
   return (
-    <Section
-      step="③"
-      title="Agent 执行时间线"
-      desc="Agent 的每一步都会实时推送到这里；依赖相同的步骤并行执行"
-    >
-      {running && empty && (
-        <p className="animate-pulse py-6 text-center text-sm text-slate-500">
-          正在等待 Agent 开始执行…
-        </p>
-      )}
-
-      {model.hasPlan && model.steps.length > 0 && (
-        <div className="space-y-3">
-          {waves.map((wave, wi) => (
-            <div
-              key={wi}
-              className={wave.length > 1 ? "grid gap-3 md:grid-cols-2" : ""}
-            >
-              {wave.map((card) => (
-                <StepCardView key={card.step_id} card={card} />
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {model.items.length > 0 && (
-        <ol className={`space-y-3 ${model.hasPlan && model.steps.length > 0 ? "mt-4 border-t border-slate-800/60 pt-4" : ""}`}>
-          {model.items.map((it, idx) => {
-            if (it.kind === "state") {
-              return (
-                <li key={idx} className="text-xs text-slate-500">
-                  状态切换 → {it.state_status}
-                </li>
-              );
-            }
-            if (it.kind === "cache") {
-              const hit = it.hit === true;
-              const keyTail = it.key ? it.key.slice(-4) : "";
-              return (
-                <li
-                  key={idx}
-                  className="flex flex-wrap items-center gap-2 text-sm"
-                >
-                  {hit ? (
-                    <Badge tone="sky">
-                      ⚡ Redis HIT{keyTail ? ` · …${keyTail}` : ""}
-                    </Badge>
-                  ) : (
-                    <Badge>cache MISS</Badge>
-                  )}
-                </li>
-              );
-            }
-            if (it.kind === "engine") {
-              return (
-                <li
-                  key={idx}
-                  className="flex flex-wrap items-center gap-2 text-sm"
-                >
-                  <Badge tone="violet">引擎: {it.engine}</Badge>
-                  <span className="text-slate-400">
-                    预估行数 {it.rows_estimate?.toLocaleString()}
-                    {it.reason ? `（${it.reason}）` : ""}
-                  </span>
-                </li>
-              );
-            }
-            if (it.kind === "sql") {
-              return (
-                <li key={idx}>
-                  <p className="mb-1 text-xs text-slate-400">
-                    {it.explanation ?? "生成的 SQL"}
-                  </p>
-                  <pre className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-950 px-4 py-3 font-mono text-xs text-emerald-300">
-                    {it.sql}
-                  </pre>
-                </li>
-              );
-            }
-            if (it.kind === "error") {
-              return (
-                <li
-                  key={idx}
-                  className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300"
-                >
-                  <Badge tone="red">{it.code}</Badge>
-                  <span className="ml-2">{it.message}</span>
-                </li>
-              );
-            }
-            // agent（旧链路平铺）
-            const ok = it.status === "ok";
-            return (
-              <li
-                key={idx}
-                className="flex flex-wrap items-center gap-2 text-sm"
-              >
-                <span className="text-slate-300">
-                  🤖 <span className="font-mono">{it.agent}</span>
-                </span>
-                {it.status === "running" ? (
-                  <Badge tone="amber">运行中…</Badge>
-                ) : ok ? (
-                  <Badge tone="green">完成</Badge>
-                ) : (
-                  <Badge tone="red">{it.status}</Badge>
-                )}
-                {it.latency_ms !== undefined && (
-                  <span className="text-xs text-slate-500">
-                    {it.latency_ms} ms
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-      )}
-    </Section>
-  );
-}
-
-/* ---------- 区块④ 结果卡片 ---------- */
-
-function ResultPanel({ final }: { final: FinalResult }) {
-  const hasChart = final.chart && final.columns.length > 0 && final.rows.length > 0;
-  const tableRows = final.rows.slice(0, 50);
-
-  return (
-    <Section step="④" title="分析结果" desc="说明、图表与数据表">
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <Badge tone="sky">引擎: {final.engine}</Badge>
-          <Badge>耗时 {final.elapsed_ms} ms</Badge>
-          <Badge>
-            {final.row_count} 行{final.truncated ? "（已截断）" : ""}
-          </Badge>
-        </div>
-
-        {final.explanation && (
-          <p className="rounded-lg border border-slate-800 bg-slate-800/40 px-4 py-3 text-sm leading-relaxed text-slate-200">
-            {final.explanation}
-          </p>
-        )}
-
-        {final.sql && (
-          <details className="group rounded-lg border border-slate-800">
-            <summary className="cursor-pointer px-4 py-2 text-sm text-slate-400 transition hover:text-slate-200">
-              查看 SQL（点击展开/收起）
-            </summary>
-            <pre className="overflow-x-auto border-t border-slate-800 bg-slate-950 px-4 py-3 font-mono text-xs text-emerald-300">
-              {final.sql}
-            </pre>
-          </details>
-        )}
-
-        {hasChart && final.chart && (
-          <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-2">
-            <ChartBox
-              chart={final.chart}
-              columns={final.columns}
-              rows={final.rows}
-            />
-          </div>
-        )}
-
-        <div className="overflow-x-auto rounded-lg border border-slate-800">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-800/80 text-slate-300">
-              <tr>
-                {final.columns.map((c) => (
-                  <th key={c} className="px-4 py-2 font-medium whitespace-nowrap">
-                    {c}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {tableRows.map((row, i) => (
-                <tr key={i} className="border-t border-slate-800 text-slate-300">
-                  {row.map((cell, j) => (
-                    <td key={j} className="px-4 py-1.5 whitespace-nowrap">
-                      {cell === null ? "-" : String(cell)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {final.rows.length > 50 && (
-            <p className="border-t border-slate-800 px-4 py-2 text-xs text-slate-500">
-              仅显示前 50 行，共 {final.row_count} 行
-            </p>
-          )}
-        </div>
-      </div>
-    </Section>
+    <TimelineCard
+      steps={model.steps}
+      items={model.items}
+      hasPlan={model.hasPlan}
+      running={running}
+    />
   );
 }
 
 /* ---------- 匹配结果卡（engine === "multi_agent"） ---------- */
-
-function scoreColor(score: number): string {
-  if (score >= 80) return "#34d399";
-  if (score >= 60) return "#38bdf8";
-  return "#fbbf24";
-}
-
-function ScoreRing({ score }: { score: number }) {
-  const r = 52;
-  const c = 2 * Math.PI * r;
-  const pct = Math.max(0, Math.min(100, score)) / 100;
-  return (
-    <svg viewBox="0 0 120 120" className="h-32 w-32">
-      <circle cx="60" cy="60" r={r} fill="none" stroke="#1e293b" strokeWidth="10" />
-      <circle
-        cx="60"
-        cy="60"
-        r={r}
-        fill="none"
-        stroke={scoreColor(score)}
-        strokeWidth="10"
-        strokeLinecap="round"
-        strokeDasharray={`${c * pct} ${c}`}
-        transform="rotate(-90 60 60)"
-      />
-      <text
-        x="60"
-        y="70"
-        textAnchor="middle"
-        fontSize="30"
-        fontWeight="bold"
-        fill={scoreColor(score)}
-      >
-        {score}
-      </text>
-    </svg>
-  );
-}
 
 function MatchResultPanel({ final }: { final: MatchFinal }) {
   const dims = Object.entries(final.dimensions ?? {});
@@ -1758,49 +1357,7 @@ export default function Home() {
   }
 
   return (
-    <div>
-      {/* 吸顶导航条：毛玻璃 + 锚点 */}
-      <nav className="sticky top-0 z-40 -mx-4 mb-8 border-b border-slate-800/80 bg-slate-950/70 px-4 py-3 backdrop-blur">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <a
-            href="#top"
-            className="text-lg font-bold tracking-tight text-slate-100"
-          >
-            Agent
-            <span className="bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">
-              Insight
-            </span>
-          </a>
-          <div className="flex items-center gap-1 text-sm">
-            <a
-              href="#analysis"
-              className="rounded-lg px-2.5 py-1.5 text-slate-400 transition hover:bg-slate-800/60 hover:text-sky-300"
-            >
-              数据分析
-            </a>
-            <a
-              href="#match"
-              className="rounded-lg px-2.5 py-1.5 text-slate-400 transition hover:bg-slate-800/60 hover:text-sky-300"
-            >
-              简历匹配
-            </a>
-            <a
-              href="#crawler"
-              className="rounded-lg px-2.5 py-1.5 text-slate-400 transition hover:bg-slate-800/60 hover:text-sky-300"
-            >
-              爬虫
-            </a>
-            <Link
-              href="/settings"
-              className="ml-1 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-slate-300 transition hover:border-sky-500/60 hover:text-sky-300"
-            >
-              ⚙ 设置
-            </Link>
-            <UserChip />
-          </div>
-        </div>
-      </nav>
-
+    <div className="px-4 py-6">
       {/* Hero：精简为标题 + 副标题 + 两个入口 */}
       <header id="top" className="scroll-mt-20 pb-10">
         <h1 className="text-3xl font-bold tracking-tight text-slate-100 sm:text-4xl">
@@ -1817,13 +1374,13 @@ export default function Home() {
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <a
             href="#analysis"
-            className="rounded-lg bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-500"
+            className="btn-primary"
           >
             去分析 ↓
           </a>
           <Link
             href="/settings"
-            className="rounded-lg border border-slate-700 bg-slate-800/60 px-5 py-2 text-sm font-medium text-slate-300 transition hover:border-sky-500/60 hover:text-sky-300"
+            className="btn-ghost"
           >
             去设置
           </Link>
@@ -1852,7 +1409,7 @@ export default function Home() {
               {okMsg && <OkBar message={okMsg} />}
               <TimelinePanel events={events} running={running} />
               {final && final.engine !== "multi_agent" && (
-                <ResultPanel final={final as FinalResult} />
+                <ResultCard final={final as FinalResult} />
               )}
               <HistoryPanel
                 onReplay={(steps, finalResult) => {

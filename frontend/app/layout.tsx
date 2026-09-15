@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import Navbar from "./components/Navbar";
 
 export const metadata: Metadata = {
   title: "AgentInsight",
@@ -13,8 +14,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN" className="scroll-smooth">
-      <body>
-        <div className="mx-auto max-w-6xl px-4 py-6">{children}</div>
+      <body className="min-h-screen">
+        <Navbar />
+        <main className="pt-16">{children}</main>
       </body>
     </html>
   );
