@@ -9,6 +9,7 @@ import time
 from decimal import Decimal
 
 from app.agents.base import AgentResult, BaseAgent, EmitFn
+from app.agents.few_shot import add_to_history, format_few_shot_prompt
 from app.agent_runtime.state import TaskState
 from app.cache.keys import nl2sql_key, text_hash
 from app.cache.policies import TTL_SCHEMA
@@ -148,11 +149,7 @@ class DataAgent(BaseAgent):
                 cache_state = "hit"
             else:
                 cache_state = "miss"
-                user_prompt = (
-                    f"表名: {table}\n"
-                    f"字段:\n{schema_str}\n"
-                    f"用户问题: {state.query}\n"
-                )
+                user_prompt = format_few_shot_prompt(state.query, schema_str, table)
                 llm_result = await get_llm_client().generate_json(NL2SQL_SYSTEM_PROMPT, user_prompt)
                 raw_sql = str(llm_result.get("sql") or "").strip()
                 explanation = str(llm_result.get("explanation") or "mock 规则生成")
@@ -202,6 +199,9 @@ class DataAgent(BaseAgent):
                     raise
             if result is None:
                 raise last_err or EngineError("SQL 执行失败")
+
+            # 执行成功：写入 few-shot 历史库
+            add_to_history(state.query, sql, explanation)
 
             # 写缓存（仅首次生成成功时写入）
             if cache_state == "miss" and sql:

@@ -27,8 +27,7 @@ class Supervisor:
     async def route(self, state: TaskState, emit: EmitFn) -> list[PlanStep]:
         """按上下文选择执行计划。
 
-        预留扩展：后续可在此接入 complexity 评估（多步分解、多 agent 协作时
-        生成更长计划），当前仅按 resume/dataset 有无分流。
+        路由逻辑：resume/dataset 有无分流 + query 复杂度评估（简单问题跳过 validator）。
         """
         has_resume = bool(state.context.get("resume"))
         if has_resume and (
@@ -42,7 +41,7 @@ class Supervisor:
         if any(kw in state.query for kw in _RESUME_KEYWORDS):
             # 求职意图但本轮走数据链路：标记预留
             state.context["mark"] = "resume_future"
-        return build_data_plan()
+        return build_data_plan(state.query)
 
     async def run_task(self, state: TaskState, emit: EmitFn) -> TaskState:
         """完整编排：路由 → 广播 plan → 委托 WorkflowExecutor 执行。"""

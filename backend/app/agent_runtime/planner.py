@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.agent_runtime.complexity import SIMPLE, assess_complexity
 from app.core.config import settings
 
 
@@ -35,8 +36,17 @@ def build_match_plan() -> list[PlanStep]:
     ]
 
 
-def build_data_plan() -> list[PlanStep]:
-    """数据分析链路：data → validator。"""
+def build_data_plan(query: str = "") -> list[PlanStep]:
+    """数据分析链路：根据复杂度自适应。"""
+    complexity = assess_complexity(query) if query else "normal"
+
+    if complexity == SIMPLE:
+        # 简单问题：跳过 validator，直接完成
+        return [
+            PlanStep(id="data", agent="data_agent"),
+        ]
+
+    # 普通/复杂：完整链路
     return [
         PlanStep(id="data", agent="data_agent"),
         PlanStep(id="validator", agent="validator_agent", depends_on=["data"]),
