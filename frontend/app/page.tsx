@@ -162,10 +162,20 @@ async function readError(res: Response): Promise<Error> {
 
 /* ---------- 小组件 ---------- */
 
-function ErrorBar({ message }: { message: string }) {
+function ErrorBar({ message, retrying }: { message: string; retrying?: boolean }) {
   return (
-    <div className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-      出错了：{message}
+    <div
+      className={`mt-3 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${
+        retrying
+          ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+          : "border-red-500/50 bg-red-500/15 text-red-200 shadow-lg shadow-red-500/10"
+      }`}
+    >
+      <span className="mt-0.5 text-lg leading-none">{retrying ? "⚠" : "✕"}</span>
+      <div className="flex-1">
+        <p className="font-medium">{retrying ? "执行出错，正在重试…" : "任务失败"}</p>
+        <p className="mt-1 text-xs opacity-80">{message}</p>
+      </div>
     </div>
   );
 }
@@ -1598,6 +1608,7 @@ export default function Home() {
   const [final, setFinal] = useState<FinalResult | MatchFinal | null>(null);
   const [running, setRunning] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false); // 是否正在重试
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const reconnectCountRef = useRef<number>(0); // 已重连次数
@@ -1635,14 +1646,24 @@ export default function Home() {
         return;
       }
       if (data.type === "error") {
-        // 非终态 error（重试中）只记录到时间线，不关闭连接
+        // 非终态 error（重试中）记录到时间线并显示重试提示，不关闭连接
         setEvents((prev) => [...prev, data]);
         if (data.terminal) {
           es.close();
           setRunning(false);
+          setRetrying(false);
           setAskError(String(data.message ?? "任务执行失败"));
+        } else {
+          // 重试中：显示黄色警告
+          setRetrying(true);
+          setAskError(String(data.message ?? "执行出错"));
         }
         return;
+      }
+      // 收到 retry 事件时清除重试状态
+      if (data.type === "retry") {
+        setRetrying(false);
+        setAskError(null);
       }
       setEvents((prev) => [...prev, data]);
     };
@@ -1673,6 +1694,7 @@ export default function Home() {
       return;
     }
     setAskError(null);
+    setRetrying(false);
     setOkMsg(null);
     setEvents([]);
     setFinal(null);
@@ -1705,6 +1727,7 @@ export default function Home() {
   // 简历匹配：复用与提问相同的 SSE 消费链路（提交时清空旧事件）
   async function startMatch(resumeId: string, jobIds: number[]) {
     setAskError(null);
+    setRetrying(false);
     setOkMsg(null);
     setEvents([]);
     setFinal(null);
@@ -1822,7 +1845,10 @@ export default function Home() {
               <ChatPanel dataset={dataset} running={running} onStartTask={startTask} />
             </div>
             <div className="space-y-5 md:col-span-2">
-              {askError && !running && <ErrorBar message={askError} />}
+              {/* 错误展示：终态错误始终显示；重试中显示黄色警告 */}
+              {askError && (!running || retrying) && (
+                <ErrorBar message={askError} retrying={retrying} />
+              )}
               {okMsg && <OkBar message={okMsg} />}
               <TimelinePanel events={events} running={running} />
               {final && final.engine !== "multi_agent" && (
