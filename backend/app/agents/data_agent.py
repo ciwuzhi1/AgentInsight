@@ -12,7 +12,7 @@ from app.agents.base import AgentResult, BaseAgent, EmitFn
 from app.agent_runtime.state import TaskState
 from app.cache.keys import nl2sql_key, text_hash
 from app.cache.policies import TTL_SCHEMA
-from app.cache.redis import get_json, set_json
+from app.cache.redis import delete_key, get_json, set_json
 from app.core.config import settings
 from app.core.llm import NL2SQL_SYSTEM_PROMPT, get_llm_client
 from app.data_engine.duckdb_engine import EngineError, duckdb_engine
@@ -24,6 +24,14 @@ from app.tools.sql_tool import SQLGuardError, guard
 
 # 日期字符串前缀（如 2025-01-29 / 2025-01）
 _DATE_RE = re.compile(r"^\d{4}-\d{1,2}(-\d{1,2})?")
+
+
+async def _delete_cache(key: str) -> None:
+    """删除缓存键（坏缓存失效）；失败仅告警不阻断。"""
+    try:
+        await delete_key(key)
+    except Exception:
+        pass
 
 
 def _is_date(v: object) -> bool:
@@ -150,6 +158,10 @@ class DataAgent(BaseAgent):
                     break
                 except Exception as exc:
                     last_err = exc
+                    # 缓存命中但执行失败：删除坏缓存，下次重新生成
+                    if cache_state == "hit":
+                        await _delete_cache(cache_key)
+                        cache_state = "miss"  # 允许重试
                     if attempt < 2 and cache_state == "miss":
                         # 把错误喂回 LLM 重新生成 SQL
                         retry_prompt = (

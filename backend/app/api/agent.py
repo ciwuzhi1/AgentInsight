@@ -132,7 +132,7 @@ class TaskBus:
 
     async def subscribe(self, task_id: str) -> AsyncIterator[dict]:
         """先回放既有事件（截断时头部补 {"type":"truncated"}），再等新事件；
-        final / error 终止。"""
+        final / terminal error 终止（非终态 error 如重试中不终止）。"""
         entry = self._entry(task_id)
         if entry["truncated"]:
             yield {"type": "truncated"}
@@ -145,7 +145,10 @@ class TaskBus:
                 idx = len(entry["events"])
             for event in batch:
                 yield event
-                if event.get("type") in ("final", "error"):
+                # 只在 final 或 terminal error 时终止；重试中的 error 不终止
+                if event.get("type") == "final" or (
+                    event.get("type") == "error" and event.get("terminal")
+                ):
                     return
 
 
@@ -509,7 +512,9 @@ async def get_task(task_id: str, user: UserCtx = Depends(get_current_user)) -> d
                 }
             )
         elif etype == "error":
-            status = "failed_final"
+            # 只在终态 error 时标记失败；重试中的 error 不改变状态
+            if event.get("terminal"):
+                status = "failed_final"
         elif etype == "final":
             final_result = event.get("result")
             status = "completed"

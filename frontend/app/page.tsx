@@ -1615,6 +1615,9 @@ export default function Home() {
 
   function subscribe(taskId: string) {
     esRef.current?.close();
+    // 清空旧事件：后端会从头回放，避免重连后事件重复
+    setEvents([]);
+    setFinal(null);
     const es = new EventSource(sseUrl(`/api/tasks/${taskId}/events`));
     esRef.current = es;
 
@@ -1632,10 +1635,13 @@ export default function Home() {
         return;
       }
       if (data.type === "error") {
-        es.close();
-        setRunning(false);
+        // 非终态 error（重试中）只记录到时间线，不关闭连接
         setEvents((prev) => [...prev, data]);
-        setAskError(String(data.message ?? "任务执行失败"));
+        if (data.terminal) {
+          es.close();
+          setRunning(false);
+          setAskError(String(data.message ?? "任务执行失败"));
+        }
         return;
       }
       setEvents((prev) => [...prev, data]);

@@ -160,6 +160,19 @@ async def release_lock(key: str) -> bool:
         return False
 
 
+async def delete_key(key: str) -> bool:
+    """删除缓存键（用于失效坏缓存）；Redis 不可用静默返回 False。"""
+    try:
+        client = await get_redis()
+        if client is None:
+            return False
+        await client.delete(key)
+        return True
+    except Exception as exc:
+        logger.warning("Redis delete_key 降级 key=%s: %s", key, exc)
+        return False
+
+
 async def cleanup_stale_locks(prefix: str = "agent:lock:") -> int:
     """启动时清理残留的幂等锁（重启后锁可能仍持有，阻止用户重新提交）。
 
