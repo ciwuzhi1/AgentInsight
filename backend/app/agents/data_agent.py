@@ -50,19 +50,33 @@ def build_chart(columns: list[str], rows: list[list]) -> dict | None:
     """按契约 §6 规则构造图表配置；构不成图返回 None。
 
     第一列为字符串/日期列作 x_field，其余数值列作 y_fields（最多 3 个）；
-    x 为日期列 → line，否则 bar。
+    x 为日期列 → line，否则 bar。类型检测取各列前 5 个非空值，避免首行空值丢图。
     """
-    if not columns or not rows or len(columns) < 2 or len(rows[0]) < 2:
+    if not columns or not rows or len(columns) < 2:
         return None
-    first = rows[0]
-    x_value = first[0]
+
+    def _sample_non_null(col_idx: int, limit: int = 5) -> list:
+        """取该列前 limit 个非空值用于类型判断。"""
+        vals: list = []
+        for row in rows:
+            if col_idx < len(row) and row[col_idx] is not None:
+                vals.append(row[col_idx])
+                if len(vals) >= limit:
+                    break
+        return vals
+
+    x_samples = _sample_non_null(0)
+    if not x_samples:
+        return None
+    x_value = x_samples[0]
     if not (_is_date(x_value) or isinstance(x_value, str)):
         return None
-    y_fields = [
-        columns[i]
-        for i in range(1, min(len(columns), 4))
-        if i < len(first) and _is_number(first[i])
-    ]
+
+    y_fields: list[str] = []
+    for i in range(1, min(len(columns), 4)):
+        samples = _sample_non_null(i)
+        if samples and all(_is_number(v) for v in samples):
+            y_fields.append(columns[i])
     if not y_fields:
         return None
     return {

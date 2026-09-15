@@ -22,6 +22,9 @@ logger = get_logger(__name__)
 _RETRY_BASE_S = 0.5
 _RETRY_CAP_S = 4.0
 
+# 单步执行超时（秒）：防止 LLM/MinerU 挂起拖死整波
+_STEP_TIMEOUT_S = 120
+
 
 def _error_code(exc: Exception) -> str:
     """根据异常类名粗分 SSE error 事件的 code。"""
@@ -87,10 +90,28 @@ class WorkflowExecutor:
         done: dict[str, str],
     ) -> None:
         """执行单个步骤：重试退避、消息包装、optional 跳过或终态失败。"""
+        # 上游 optional 被跳过 → 本步自动跳过，避免缺数据继续跑
+        if any(done.get(d) == "skipped" for d in step.depends_on):
+            done[step.id] = "skipped"
+            await emit(
+                {
+                    "type": "step_skipped",
+                    "step": step.id,
+                    "reason": "upstream step skipped",
+                }
+            )
+            logger.info(
+                "上游步骤已跳过，本步自动跳过 task=%s step=%s", state.task_id, step.id
+            )
+            return
+
         name = step.agent
         attempt = 0
         while True:
-            state.current_agent = name
+            # fail-fast：并发兄弟步骤已把任务推到终态，不再重试
+            if state.status is TaskStatus.FAILED_FINAL:
+                return
+            state.current_agents.add(name)
             state.current_step = order[step.id]
             await emit({"type": "agent_start", "agent": name, "step": step.id})
             start = time.perf_counter()
@@ -99,7 +120,10 @@ class WorkflowExecutor:
             exc: Exception | None = None
             error_msg: str | None = None
             try:
-                result = await self._registry.get(name).run(state, emit)
+                result = await asyncio.wait_for(
+                    self._registry.get(name).run(state, emit),
+                    timeout=_STEP_TIMEOUT_S,
+                )
                 if result.status != "ok":
                     error_msg = "; ".join(result.errors) or f"{name} returned error"
             except Exception as e:  # noqa: BLE001 - 统一进重试/失败分流

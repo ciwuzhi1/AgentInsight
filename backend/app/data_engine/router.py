@@ -5,8 +5,11 @@ from app.data_engine.profiler import DatasetProfile
 
 
 def choose_engine(profile: DatasetProfile) -> str:
-    """行数达到 SPARK_ROW_THRESHOLD 走 Spark，否则 DuckDB。"""
-    # 预留：后续可按查询复杂度扩展路由规则
+    """行数或综合评分达到阈值走 Spark，否则 DuckDB。"""
     if profile.rows_estimate >= settings.SPARK_ROW_THRESHOLD:
+        return "spark"
+    # 综合评分：行数 × 列数因子；宽表/中等行数也可能触发 Spark
+    score = profile.rows_estimate * max(1, len(profile.columns)) / 1000
+    if score >= settings.SPARK_SCORE_THRESHOLD:
         return "spark"
     return "duckdb"

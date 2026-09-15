@@ -43,7 +43,7 @@ class TaskState:
         self.dataset_id: str | None = dataset_id
         self.query: str = query
         self.status: TaskStatus = TaskStatus.CREATED
-        self.current_agent: str | None = None
+        self.current_agents: set[str] = set()  # 并行波次下多 agent 同时在跑
         self.current_step: int = 0
         self.plan: list[str] = []
         self.plan_steps: list = []   # PlanStep 列表（planner 产出），plan 可由此派生

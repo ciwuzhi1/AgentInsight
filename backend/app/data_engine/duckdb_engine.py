@@ -62,6 +62,7 @@ class DuckDBEngine(AnalysisEngine):
         self._conns: dict[str, duckdb.DuckDBPyConnection] = {}
         self._tables: dict[str, str] = {}
         self._last_used: dict[str, float] = {}  # dataset_id -> monotonic timestamp
+        self._meta: dict[str, tuple[str, float]] = {}  # dataset_id -> (path, mtime)
 
     def _evict_lru(self) -> None:
         """淘汰最久未用的连接，直到数量低于 _MAX_CONNS。"""
@@ -76,6 +77,7 @@ class DuckDBEngine(AnalysisEngine):
         conn = self._conns.pop(dataset_id, None)
         self._tables.pop(dataset_id, None)
         self._last_used.pop(dataset_id, None)
+        self._meta.pop(dataset_id, None)
         if conn is not None:
             try:
                 conn.close()
@@ -104,8 +106,16 @@ class DuckDBEngine(AnalysisEngine):
         logger.info("DuckDB 所有连接已关闭")
 
     def register_dataset(self, dataset_id: str, name: str, path: str) -> dict:
-        """把 CSV 注册为视图并返回 schema；重复注册覆盖旧视图。"""
+        """把 CSV 注册为视图并返回 schema；path/mtime 未变时复用缓存视图。"""
         table = table_for(dataset_id)
+        try:
+            mtime = Path(path).stat().st_mtime
+        except OSError:
+            mtime = -1.0
+        cached = self._meta.get(dataset_id)
+        if dataset_id in self._tables and cached == (path, mtime):
+            logger.debug("视图未变更，跳过重建 dataset=%s table=%s", dataset_id, table)
+            return self.get_schema(dataset_id)
         sql = (
             f"CREATE OR REPLACE VIEW {table} AS "
             f"SELECT * FROM read_csv_auto('{_escape(_posix(path))}', header=true)"
@@ -116,6 +126,7 @@ class DuckDBEngine(AnalysisEngine):
         except Exception as exc:
             raise EngineError(f"注册数据集失败 {dataset_id}: {exc}") from exc
         self._tables[dataset_id] = table
+        self._meta[dataset_id] = (path, mtime)
         logger.info("数据集已注册 dataset=%s table=%s path=%s", dataset_id, table, path)
         return self.get_schema(dataset_id)
 

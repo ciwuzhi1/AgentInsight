@@ -10,12 +10,13 @@ CONTRACTS3 §1.4：最外层 cache-aside——文件字节指纹 → Redis；HIT
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from pathlib import Path
 
 from app.agents.base import AgentResult, BaseAgent, EmitFn, get_setting_safe, safe_emit
 from app.agent_runtime.state import TaskState
-from app.cache.keys import bytes_hash, resume_key
+from app.cache.keys import resume_key
 from app.cache.policies import TTL_RESUME
 from app.cache.redis import get_json, set_json
 from app.core.logging import get_logger
@@ -32,9 +33,6 @@ RESUME_PROFILE_SYSTEM_PROMPT = (
     "experience_years 为工作年限（整数，推断不出填 0）；highlights 为个人亮点列表。"
 )
 
-# 简历正文送给 LLM 的最大长度（超出截断，避免上下文爆炸）
-_MAX_LLM_TEXT = 6000
-
 # 规则兜底用的补充技能词表（crawler.parser.SKILL_KEYWORDS 之外的常见技能）
 _EXTRA_SKILLS = [
     "Go", "Golang", "TypeScript", "Vue", "React Native", "PostgreSQL",
@@ -42,14 +40,26 @@ _EXTRA_SKILLS = [
     "机器学习", "深度学习", "NLP", "持续集成",
 ]
 
-# 补充 ASCII 技能词用词边界匹配，避免 Go 误命中 Good 等
-_EXTRA_ASCII_PATTERNS = {
-    kw: re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE)
-    for kw in _EXTRA_SKILLS
-    if kw.isascii()
-}
 # 中文词无 ASCII 词边界，用包含匹配
 _EXTRA_CJK_SKILLS = [kw for kw in _EXTRA_SKILLS if not kw.isascii()]
+
+# 单次扫描的组合正则与反查表（懒构建，避免模块级导入 crawler.parser）
+_COMBINED_ASCII_RE: re.Pattern | None = None
+_ASCII_KW_LOOKUP: dict[str, str] = {}
+
+
+def _ensure_combined_ascii_re() -> re.Pattern:
+    global _COMBINED_ASCII_RE, _ASCII_KW_LOOKUP
+    if _COMBINED_ASCII_RE is None:
+        from app.crawler.parser import SKILL_KEYWORDS
+
+        ascii_kws = [
+            kw for kw in list(SKILL_KEYWORDS) + _EXTRA_SKILLS if kw.isascii()
+        ]
+        _ASCII_KW_LOOKUP = {kw.lower(): kw for kw in ascii_kws}
+        alternation = "|".join(re.escape(kw) for kw in ascii_kws)
+        _COMBINED_ASCII_RE = re.compile(rf"\b(?:{alternation})\b", re.IGNORECASE)
+    return _COMBINED_ASCII_RE
 
 # 学历优先级从高到低
 _EDU_LEVELS = ("博士", "硕士", "本科", "大专")
@@ -83,6 +93,15 @@ def _txt_text(path: str) -> str:
     return Path(path).read_text(encoding="utf-8", errors="ignore")
 
 
+def _stream_hash(path: str) -> str:
+    """分块读取文件并计算 SHA-256 哈希，避免一次性加载大文件到内存。"""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()[:16]
+
+
 async def _extract_text(path: str) -> tuple[str, str]:
     """按后缀抽取纯文本，返回 (text, backend_used)。"""
     suffix = Path(path).suffix.lower()
@@ -110,13 +129,22 @@ async def _extract_text(path: str) -> tuple[str, str]:
 
 def _rule_skills(text: str) -> list[str]:
     """词表匹配技能：crawler 词表 + 补充词表，去重保序（保留词表原始大小写）。"""
-    from app.crawler.parser import SKILL_KEYWORDS, _SKILL_PATTERNS
+    from app.crawler.parser import SKILL_KEYWORDS
 
     skills: list[str] = []
-    for kw in list(SKILL_KEYWORDS) + list(_EXTRA_ASCII_PATTERNS) + _EXTRA_CJK_SKILLS:
-        pat = _SKILL_PATTERNS.get(kw) or _EXTRA_ASCII_PATTERNS.get(kw)
-        hit = pat.search(text) if pat else kw in text
-        if hit and kw not in skills:
+    # ASCII 技能：单次正则扫描
+    combined = _ensure_combined_ascii_re()
+    for m in combined.finditer(text):
+        kw = _ASCII_KW_LOOKUP[m.group(0).lower()]
+        if kw not in skills:
+            skills.append(kw)
+    # CJK 技能：简单包含匹配
+    for kw in _EXTRA_CJK_SKILLS:
+        if kw in text and kw not in skills:
+            skills.append(kw)
+    # 也把 crawler 词表中未被 ASCII 分支覆盖的词补上（词表当前全 ASCII，防御性保留）
+    for kw in SKILL_KEYWORDS:
+        if kw not in skills and not kw.isascii() and kw in text:
             skills.append(kw)
     return skills
 
@@ -193,8 +221,8 @@ class ResumeAgent(BaseAgent):
 
         # 0. cache-aside（CONTRACTS3 §1.4）：文件字节指纹（不解析）→ Redis。
         #    HIT 直接用缓存画像，0 次文件解析 + 0 次 LLM。
-        raw_bytes = await asyncio.to_thread(Path(str(path)).read_bytes)
-        key = resume_key(bytes_hash(raw_bytes))
+        file_hash = await asyncio.to_thread(_stream_hash, str(path))
+        key = resume_key(file_hash)
         cached = await get_json(key)
         hit = isinstance(cached, dict) and isinstance(cached.get("profile"), dict)
         await safe_emit(emit, {"type": "cache", "hit": hit, "key": key})
@@ -230,7 +258,8 @@ class ResumeAgent(BaseAgent):
                 try:
                     profile = _coerce_profile(
                         await client.generate_json(
-                            RESUME_PROFILE_SYSTEM_PROMPT, text[:_MAX_LLM_TEXT]
+                            RESUME_PROFILE_SYSTEM_PROMPT,
+                            text[:4000] + "\n...\n" + text[-2000:],
                         )
                     )
                     source = "llm"
@@ -252,13 +281,14 @@ class ResumeAgent(BaseAgent):
                 TTL_RESUME,
             )
 
-        # 3. 落库（A4 提供 save_resume，失败仅告警不阻断；HIT/MISS 都落，持久化行为不变）
-        try:
-            from app.persistence.mysql import save_resume
+        # 3. 落库（A4 提供 save_resume，失败仅告警不阻断；仅 MISS 时写库，HIT 跳过）
+        if cache_state != "hit":
+            try:
+                from app.persistence.mysql import save_resume
 
-            await asyncio.to_thread(save_resume, resume_id, filename, str(path), profile)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("save_resume 落库失败（不阻断）resume_id=%s: %s", resume_id, exc)
+                await asyncio.to_thread(save_resume, resume_id, filename, str(path), profile)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("save_resume 落库失败（不阻断）resume_id=%s: %s", resume_id, exc)
 
         data = {
             "resume_id": resume_id,

@@ -10,6 +10,7 @@ CONTRACTS3 §1.4：最外层 cache-aside——所有 JD 的 title+description �
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 
 from app.agents.base import AgentResult, BaseAgent, EmitFn, safe_emit
@@ -110,7 +111,7 @@ class JobAgent(BaseAgent):
 
         # cache-aside（CONTRACTS3 §1.4）：所有 JD 的 title+description 拼接 hash → Redis
         jd_blob = "\x1f".join(
-            f"{j.get('title') or ''}\x1f{j.get('description') or ''}"
+            f"{j.get('title') or ''}\x1f{j.get('description') or ''}\x1f{j.get('skills') or ''}"
             if isinstance(j, dict)
             else str(j)
             for j in jobs
@@ -154,13 +155,14 @@ class JobAgent(BaseAgent):
                     # A4 之后看 is_mock 属性，之前回退类型判断
                     if not getattr(client, "is_mock", isinstance(client, MockLLMClient)):
                         batch = jobs[:_MAX_LLM_JOBS]
-                        user = f"岗位列表（JSON）:\n{batch}\n"
+                        user = f"岗位列表（JSON）:\n{json.dumps(batch, ensure_ascii=False, default=str)}\n"
                         raw = await client.generate_json(JOB_PROFILE_SYSTEM_PROMPT, user)
                         raw_jobs = raw.get("jobs") if isinstance(raw, dict) else None
                         if isinstance(raw_jobs, list) and raw_jobs:
+                            jobs_by_id = {j.get("id"): j for j in jobs if isinstance(j, dict)}
                             profiled = [
-                                _coerce_job(r, jobs[i] if i < len(jobs) else None)
-                                for i, r in enumerate(raw_jobs)
+                                _coerce_job(r, jobs_by_id.get(r.get("id") if isinstance(r, dict) else None))
+                                for r in raw_jobs
                             ]
                             source = "llm"
                 except Exception as exc:  # noqa: BLE001

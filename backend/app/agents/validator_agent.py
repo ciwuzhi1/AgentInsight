@@ -70,9 +70,28 @@ def _validate_data(data: dict | None) -> list[str]:
     if not isinstance(final.get("truncated"), bool):
         errors.append("truncated 必须为 bool")
 
+    # 行列形状：前 50 行行宽必须等于列数
+    if isinstance(columns, list) and columns and isinstance(rows, list):
+        if not all(len(r) == len(columns) for r in rows[:50]):
+            errors.append("rows 行宽与 columns 列数不一致")
+
     chart = final.get("chart")
     if chart is not None and not isinstance(chart, dict):
         errors.append("chart 必须为 dict 或 None")
+    elif isinstance(chart, dict):
+        ctype = chart.get("type")
+        if ctype not in {"line", "bar"}:
+            errors.append(f"chart.type 非法: {ctype!r}")
+        col_set = set(columns) if isinstance(columns, list) else set()
+        if chart.get("x_field") not in col_set:
+            errors.append(f"chart.x_field 不在 columns 中: {chart.get('x_field')!r}")
+        y_fields = chart.get("y_fields")
+        if not isinstance(y_fields, list):
+            errors.append("chart.y_fields 必须为 list")
+        else:
+            for yf in y_fields:
+                if yf not in col_set:
+                    errors.append(f"chart.y_fields 含未知列: {yf!r}")
 
     return errors
 

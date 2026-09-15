@@ -42,8 +42,9 @@ class Settings(BaseSettings):
     MAX_RETRY: int = 2
     SQL_MAX_ROWS: int = 1000
 
-    # 引擎路由：行数 >= 阈值走 Spark
+    # 引擎路由：行数 >= 阈值，或综合评分 (rows * max(1, cols) / 1000) >= 评分阈值走 Spark
     SPARK_ROW_THRESHOLD: int = 100000
+    SPARK_SCORE_THRESHOLD: float = 100.0
     SPARK_IMAGE: str = "apache/spark:3.5.1"
 
     # 目录（空值时由 data_dir / upload_dir 属性派生到 <repo>/data）
