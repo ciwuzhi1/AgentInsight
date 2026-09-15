@@ -1,8 +1,12 @@
 """MatchAgent：简历画像 × 岗位画像 → 规则打分 + 技能缺口 + 解读（CONTRACTS2 §3.3）。
 
 输入只从 state.messages 取 receiver 含 "match_agent" 的消息（resume_profile /
-job_profile），找不到时兜底读 state.results。规则打分不依赖 LLM；LLM 解读由
-app_settings.match_llm_enabled 开关控制且仅真模型启用，失败回模板文案。
+job_profile），找不到时兜底读 state.results。
+
+打分算法（2026-03 升级）：
+- 技能维度：TF-IDF + 余弦相似度（区分常见/稀有技能权重）
+- 其他维度：规则打分（项目/经验/学历/工程化）
+- LLM 解读由 app_settings.match_llm_enabled 开关控制
 """
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ import re
 import time
 
 from app.agents.base import AgentResult, BaseAgent, EmitFn, get_setting_safe
+from app.agents.match_algo import combined_skill_score
 from app.agent_runtime.state import TaskState
 from app.core.logging import get_logger
 
@@ -130,7 +135,7 @@ def collect_payloads(state: TaskState) -> tuple[dict | None, dict | None]:
 # ---------- 打分 ----------
 
 def compute_match(profile: dict, jobs: list[dict]) -> dict:
-    """规则打分：返回 score/dimensions/skill_gap。"""
+    """打分：技能用 TF-IDF+余弦相似度，其他维度用规则。返回 score/dimensions/skill_gap。"""
     profile = profile or {}
     jobs = jobs or []
     jd_skills: list[str] = []
@@ -141,18 +146,21 @@ def compute_match(profile: dict, jobs: list[dict]) -> dict:
     resume_norm_set, _ = _skill_set(profile.get("skills") or [])
     jd_norm_set, jd_display = _skill_set(jd_skills)
 
-    # skill：resume 技能集与各 JD 技能集交集比例的均值
-    if jd_norm_set:
-        ratios = []
-        for job in jobs:
-            jset, _ = _skill_set(
-                [str(s) for s in job.get("skills") or []]
-                + [str(s) for s in job.get("must_have") or []]
-            )
-            ratios.append(len(resume_norm_set & jset) / len(jset) if jset else 1.0)
-        skill_score = round(sum(ratios) / len(ratios) * 100)
-    else:
-        skill_score = 100
+    # skill：TF-IDF + 余弦相似度（替代简单集合交集）
+    # 构建所有 JD 的技能列表（已归一化）
+    all_jobs_skills_norm: list[list[str]] = []
+    for job in jobs:
+        job_skills_raw = (
+            [str(s) for s in job.get("skills") or []]
+            + [str(s) for s in job.get("must_have") or []]
+        )
+        job_norm_set, _ = _skill_set(job_skills_raw)
+        all_jobs_skills_norm.append(list(job_norm_set))
+
+    # 使用 TF-IDF + 余弦相似度算法
+    skill_score, _ = combined_skill_score(
+        list(resume_norm_set), all_jobs_skills_norm
+    )
 
     # project：projects 非空且与 JD 技能有关键词命中给满分，有项目无命中 60
     projects = [str(p) for p in profile.get("projects") or []]
