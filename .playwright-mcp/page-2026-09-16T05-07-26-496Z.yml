@@ -1,0 +1,123 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - banner [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - generic [ref=f1e5]:
+          - button "展开侧栏" [ref=f1e6]
+          - link "AgentInsight 首页" [ref=f1e9] [cursor=pointer]:
+            - /url: /
+            - generic [ref=f1e14]: AgentInsight
+        - navigation [ref=f1e15]:
+          - button "切换到深蓝主题" [ref=f1e16]:
+            - generic [ref=f1e19]: 暖黄
+          - link "设置" [ref=f1e20] [cursor=pointer]:
+            - /url: /settings
+            - generic [ref=f1e21]: ⚙
+          - button "A" [ref=f1e24]
+    - generic [ref=f1e26]:
+      - complementary "主导航侧栏" [ref=f1e27]:
+        - button "展开侧栏" [ref=f1e29]
+        - list [ref=f1e33]:
+          - listitem [ref=f1e34]:
+            - button "数据分析" [ref=f1e35]
+          - listitem [ref=f1e39]:
+            - button "简历匹配" [active] [ref=f1e40]
+          - listitem [ref=f1e46]:
+            - button "岗位爬虫" [ref=f1e47]
+      - main [ref=f1e56]:
+        - generic [ref=f1e57]:
+          - heading "简历匹配上传简历 → 勾选岗位 → 多 Agent 打分" [level=1] [ref=f1e130]
+          - generic [ref=f1e131]:
+            - generic [ref=f1e133]:
+              - button "⑤ 简历匹配 上传简历并勾选岗位，多 Agent 打分与技能缺口解读" [expanded] [ref=f1e135] [cursor=pointer]:
+                - generic [ref=f1e136]:
+                  - generic [ref=f1e137]:
+                    - generic [ref=f1e138]: ⑤
+                    - text: 简历匹配
+                  - generic [ref=f1e139]: 上传简历并勾选岗位，多 Agent 打分与技能缺口解读
+              - generic [ref=f1e144]:
+                - generic [ref=f1e145]:
+                  - generic [ref=f1e146]:
+                    - paragraph [ref=f1e147]: 上传简历
+                    - generic [ref=f1e148]:
+                      - button "Choose File" [ref=f1e149] [cursor=pointer]
+                      - button "上传简历" [ref=f1e150] [cursor=pointer]
+                    - paragraph [ref=f1e151]: 支持 pdf / docx / txt，最大 10MB；再次上传会覆盖之前的简历。
+                  - generic [ref=f1e152]:
+                    - button "▶ 选择岗位（最多 5 个，已选 0）" [ref=f1e154]:
+                      - generic [ref=f1e155]: ▶
+                      - text: 选择岗位（最多 5 个，已选 0）
+                    - list [ref=f1e156]:
+                      - listitem [ref=f1e157]:
+                        - generic [ref=f1e158] [cursor=pointer]:
+                          - checkbox "Waste management officer · Jones, Williams and Villa · Scotttown, AP" [ref=f1e159]
+                          - generic [ref=f1e160]:
+                            - text: Waste management officer
+                            - generic [ref=f1e161]: · Jones, Williams and Villa · Scotttown, AP
+                      - listitem [ref=f1e162]:
+                        - generic [ref=f1e163] [cursor=pointer]:
+                          - checkbox "Television floor manager · Hughes-Williams · Osbornetown, AE" [ref=f1e164]
+                          - generic [ref=f1e165]:
+                            - text: Television floor manager
+                            - generic [ref=f1e166]: · Hughes-Williams · Osbornetown, AE
+                      - listitem [ref=f1e167]:
+                        - generic [ref=f1e168] [cursor=pointer]:
+                          - checkbox "Textile designer · Meyers-Johnson · Port Jonathan, AE" [ref=f1e169]
+                          - generic [ref=f1e170]:
+                            - text: Textile designer
+                            - generic [ref=f1e171]: · Meyers-Johnson · Port Jonathan, AE
+                      - listitem [ref=f1e172]:
+                        - generic [ref=f1e173] [cursor=pointer]:
+                          - checkbox "Physiological scientist · Kramer-Klein · South Christopher, AE" [ref=f1e174]
+                          - generic [ref=f1e175]:
+                            - text: Physiological scientist
+                            - generic [ref=f1e176]: · Kramer-Klein · South Christopher, AE
+                      - listitem [ref=f1e177]:
+                        - generic [ref=f1e178] [cursor=pointer]:
+                          - checkbox "Medical technical officer · Rogers-Yates · Davidville, AP" [ref=f1e179]
+                          - generic [ref=f1e180]:
+                            - text: Medical technical officer
+                            - generic [ref=f1e181]: · Rogers-Yates · Davidville, AP
+                      - listitem [ref=f1e182]:
+                        - generic [ref=f1e183] [cursor=pointer]:
+                          - checkbox "Product manager · Ramirez Inc · North Jamieview, AP" [ref=f1e184]
+                          - generic [ref=f1e185]:
+                            - text: Product manager
+                            - generic [ref=f1e186]: · Ramirez Inc · North Jamieview, AP
+                      - listitem [ref=f1e187]:
+                        - generic [ref=f1e188] [cursor=pointer]:
+                          - checkbox "Fitness centre manager · Savage-Bradley · East Seanview, AP" [ref=f1e189]
+                          - generic [ref=f1e190]:
+                            - text: Fitness centre manager
+                            - generic [ref=f1e191]: · Savage-Bradley · East Seanview, AP
+                      - listitem [ref=f1e192]:
+                        - generic [ref=f1e193] [cursor=pointer]:
+                          - checkbox "Legal executive · Jackson, Chambers and Levy · Port Ericaburgh, AA" [ref=f1e194]
+                          - generic [ref=f1e195]:
+                            - text: Legal executive
+                            - generic [ref=f1e196]: · Jackson, Chambers and Levy · Port Ericaburgh, AA
+                      - listitem [ref=f1e197]:
+                        - generic [ref=f1e198] [cursor=pointer]:
+                          - checkbox "Energy engineer · Vasquez-Davidson · Christopherville, AA" [ref=f1e199]
+                          - generic [ref=f1e200]:
+                            - text: Energy engineer
+                            - generic [ref=f1e201]: · Vasquez-Davidson · Christopherville, AA
+                      - listitem [ref=f1e202]:
+                        - generic [ref=f1e203] [cursor=pointer]:
+                          - checkbox "Senior Python Developer · Payne, Roberts and Davis · Stewartbury, AA" [ref=f1e204]
+                          - generic [ref=f1e205]:
+                            - text: Senior Python Developer
+                            - generic [ref=f1e206]: · Payne, Roberts and Davis · Stewartbury, AA
+                - generic [ref=f1e207]:
+                  - button "开始匹配" [ref=f1e208] [cursor=pointer]
+                  - text: 匹配过程与结果复用上方的执行时间线和结果区
+            - complementary [ref=f1e209]:
+              - generic [ref=f1e210]:
+                - heading "匹配日志" [level=3] [ref=f1e211]
+                - generic [ref=f1e212]: 0 条
+              - paragraph [ref=f1e214]: 暂无日志
+  - status [ref=f1e119]:
+    - generic [ref=f1e124]:
+      - text: Static route
+      - button "Hide static indicator" [ref=f1e125] [cursor=pointer]
+  - alert [ref=f1e118]

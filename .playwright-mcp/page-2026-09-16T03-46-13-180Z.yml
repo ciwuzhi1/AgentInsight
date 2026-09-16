@@ -1,0 +1,206 @@
+- generic [ref=f2e1]:
+  - generic [ref=f2e2]:
+    - banner [ref=f2e3]:
+      - generic [ref=f2e4]:
+        - generic [ref=f2e5]:
+          - button "展开侧栏" [ref=f2e288]
+          - link "AgentInsight 首页" [ref=f2e9] [cursor=pointer]:
+            - /url: /
+            - generic [ref=f2e14]: AgentInsight
+        - navigation [ref=f2e15]:
+          - button "切换到深蓝主题" [ref=f2e286]:
+            - generic [ref=f2e20]: 暖黄
+          - link "设置" [ref=f2e21] [cursor=pointer]:
+            - /url: /settings
+            - generic [ref=f2e22]: ⚙
+          - button "A" [ref=f2e222]
+    - generic [ref=f2e24]:
+      - complementary "主导航侧栏" [ref=f2e25]:
+        - button "展开侧栏" [active] [ref=f2e289]
+        - list [ref=f2e32]:
+          - listitem [ref=f2e33]:
+            - link "数据分析" [ref=f2e34] [cursor=pointer]:
+              - /url: /#analysis
+          - listitem [ref=f2e39]:
+            - link "简历匹配" [ref=f2e40] [cursor=pointer]:
+              - /url: /#match
+          - listitem [ref=f2e47]:
+            - link "任务历史" [ref=f2e48] [cursor=pointer]:
+              - /url: /#analysis
+          - listitem [ref=f2e54]:
+            - link "岗位爬虫" [ref=f2e55] [cursor=pointer]:
+              - /url: /#crawler
+      - main [ref=f2e79]:
+        - generic [ref=f2e80]:
+          - generic [ref=f2e81]:
+            - heading "AgentInsight上传 CSV → 提问 → 时间线与图表" [level=1] [ref=f2e82]
+            - paragraph [ref=f2e83]: 后端：http://127.0.0.1:8100
+          - generic [ref=f2e84]:
+            - generic [ref=f2e85]:
+              - button "📊 01 数据分析工作台 上传数据集、提交岗位问题，Agent 全过程实时可见" [expanded] [ref=f2e87] [cursor=pointer]:
+                - generic [ref=f2e88]: 📊
+                - generic [ref=f2e89]:
+                  - generic [ref=f2e90]:
+                    - generic [ref=f2e91]: "01"
+                    - text: 数据分析工作台
+                  - generic [ref=f2e92]: 上传数据集、提交岗位问题，Agent 全过程实时可见
+              - generic [ref=f2e98]:
+                - generic [ref=f2e99]:
+                  - generic [ref=f2e100]:
+                    - button "① 数据集上传 拖拽或选择 CSV 文件，系统会自动分析结构与规模" [expanded] [ref=f2e102] [cursor=pointer]:
+                      - generic [ref=f2e103]:
+                        - generic [ref=f2e104]:
+                          - generic [ref=f2e105]: ①
+                          - text: 数据集上传
+                        - generic [ref=f2e106]: 拖拽或选择 CSV 文件，系统会自动分析结构与规模
+                    - generic [ref=f2e112] [cursor=pointer]:
+                      - generic [ref=f2e113]: 📄
+                      - paragraph [ref=f2e114]: 拖拽 CSV 或点击选择
+                      - paragraph [ref=f2e115]: 仅支持 .csv
+                  - generic [ref=f2e116]:
+                    - button "② 提交岗位问题（提示词） Agent 会把你的岗位问题翻译成 SQL 并在引擎上执行，全过程实时可见" [expanded] [ref=f2e118] [cursor=pointer]:
+                      - generic [ref=f2e119]:
+                        - generic [ref=f2e120]:
+                          - generic [ref=f2e121]: ②
+                          - text: 提交岗位问题（提示词）
+                        - generic [ref=f2e122]: Agent 会把你的岗位问题翻译成 SQL 并在引擎上执行，全过程实时可见
+                    - generic [ref=f2e127]:
+                      - generic [ref=f2e128]:
+                        - paragraph [ref=f2e129]: 常用问题（点击填入）：
+                        - generic [ref=f2e130]:
+                          - button "JD 中需求最多的技能 Top 10 是什么？" [disabled] [ref=f2e131]
+                          - button "统计各城市的岗位数量和平均薪资，按数量降序" [disabled] [ref=f2e132]
+                          - button "要求 Python 的岗位里，哪个城市平均薪资最高？" [disabled] [ref=f2e133]
+                          - button "各薪资区间（salary_k）的岗位数量分布" [disabled] [ref=f2e134]
+                          - button "'Python+SQL' 同时出现的岗位有多少？" [disabled] [ref=f2e135]
+                          - button "对比北京和上海岗位的技能要求差异" [disabled] [ref=f2e136]
+                          - button "最近发布（2025-05 之后）的岗位最常见 5 项技能" [disabled] [ref=f2e137]
+                          - button "岗位数量最多的公司 Top 5" [disabled] [ref=f2e138]
+                      - generic [ref=f2e140]:
+                        - textbox "请先上传数据集，再在这里输入问题…" [disabled] [ref=f2e141]
+                        - button "发送" [disabled] [ref=f2e142]
+                      - paragraph [ref=f2e143]: 建议搭配 jd_large.csv
+                - generic [ref=f2e146]:
+                  - button [ref=f2e147] [cursor=pointer]:
+                    - heading "🗂 任务历史" [level=4] [ref=f2e152]
+                  - button "加载历史" [ref=f2e153] [cursor=pointer]
+            - generic [ref=f2e155]:
+              - button "🧩 02 简历匹配 上传简历、选岗打分与技能缺口" [ref=f2e157] [cursor=pointer]:
+                - generic [ref=f2e158]: 🧩
+                - generic [ref=f2e159]:
+                  - generic [ref=f2e160]:
+                    - generic [ref=f2e161]: "02"
+                    - text: 简历匹配
+                  - generic [ref=f2e162]: 上传简历、选岗打分与技能缺口
+              - generic [ref=f2e167]:
+                - button "⑤ 简历匹配 上传简历，选择岗位（数据来自下方爬虫面板），由多 Agent 打分与解读" [ref=f2e169] [cursor=pointer]:
+                  - generic [ref=f2e170]:
+                    - generic [ref=f2e171]:
+                      - generic [ref=f2e172]: ⑤
+                      - text: 简历匹配
+                    - generic [ref=f2e173]: 上传简历，选择岗位（数据来自下方爬虫面板），由多 Agent 打分与解读
+                - generic:
+                  - generic:
+                    - generic [ref=f2e177]:
+                      - generic [ref=f2e178]:
+                        - paragraph [ref=f2e179]: 上传简历
+                        - generic [ref=f2e180]:
+                          - button "Choose File" [ref=f2e181] [cursor=pointer]
+                          - button "上传简历" [ref=f2e182] [cursor=pointer]
+                        - paragraph [ref=f2e183]: 支持 pdf / docx / txt，最大 10MB；再次上传会覆盖之前的简历。
+                      - generic [ref=f2e184]:
+                        - button "▶ 选择岗位（最多 5 个，已选 0）" [ref=f2e186]:
+                          - generic [ref=f2e187]: ▶
+                          - text: 选择岗位（最多 5 个，已选 0）
+                        - list [ref=f2e224]:
+                          - listitem [ref=f2e225]:
+                            - generic [ref=f2e226] [cursor=pointer]:
+                              - checkbox "Waste management officer · Jones, Williams and Villa · Scotttown, AP" [ref=f2e227]
+                              - generic [ref=f2e228]:
+                                - text: Waste management officer
+                                - generic [ref=f2e229]: · Jones, Williams and Villa · Scotttown, AP
+                          - listitem [ref=f2e230]:
+                            - generic [ref=f2e231] [cursor=pointer]:
+                              - checkbox "Television floor manager · Hughes-Williams · Osbornetown, AE" [ref=f2e232]
+                              - generic [ref=f2e233]:
+                                - text: Television floor manager
+                                - generic [ref=f2e234]: · Hughes-Williams · Osbornetown, AE
+                          - listitem [ref=f2e235]:
+                            - generic [ref=f2e236] [cursor=pointer]:
+                              - checkbox "Textile designer · Meyers-Johnson · Port Jonathan, AE" [ref=f2e237]
+                              - generic [ref=f2e238]:
+                                - text: Textile designer
+                                - generic [ref=f2e239]: · Meyers-Johnson · Port Jonathan, AE
+                          - listitem [ref=f2e240]:
+                            - generic [ref=f2e241] [cursor=pointer]:
+                              - checkbox "Physiological scientist · Kramer-Klein · South Christopher, AE" [ref=f2e242]
+                              - generic [ref=f2e243]:
+                                - text: Physiological scientist
+                                - generic [ref=f2e244]: · Kramer-Klein · South Christopher, AE
+                          - listitem [ref=f2e245]:
+                            - generic [ref=f2e246] [cursor=pointer]:
+                              - checkbox "Medical technical officer · Rogers-Yates · Davidville, AP" [ref=f2e247]
+                              - generic [ref=f2e248]:
+                                - text: Medical technical officer
+                                - generic [ref=f2e249]: · Rogers-Yates · Davidville, AP
+                          - listitem [ref=f2e250]:
+                            - generic [ref=f2e251] [cursor=pointer]:
+                              - checkbox "Product manager · Ramirez Inc · North Jamieview, AP" [ref=f2e252]
+                              - generic [ref=f2e253]:
+                                - text: Product manager
+                                - generic [ref=f2e254]: · Ramirez Inc · North Jamieview, AP
+                          - listitem [ref=f2e255]:
+                            - generic [ref=f2e256] [cursor=pointer]:
+                              - checkbox "Fitness centre manager · Savage-Bradley · East Seanview, AP" [ref=f2e257]
+                              - generic [ref=f2e258]:
+                                - text: Fitness centre manager
+                                - generic [ref=f2e259]: · Savage-Bradley · East Seanview, AP
+                          - listitem [ref=f2e260]:
+                            - generic [ref=f2e261] [cursor=pointer]:
+                              - checkbox "Legal executive · Jackson, Chambers and Levy · Port Ericaburgh, AA" [ref=f2e262]
+                              - generic [ref=f2e263]:
+                                - text: Legal executive
+                                - generic [ref=f2e264]: · Jackson, Chambers and Levy · Port Ericaburgh, AA
+                          - listitem [ref=f2e265]:
+                            - generic [ref=f2e266] [cursor=pointer]:
+                              - checkbox "Energy engineer · Vasquez-Davidson · Christopherville, AA" [ref=f2e267]
+                              - generic [ref=f2e268]:
+                                - text: Energy engineer
+                                - generic [ref=f2e269]: · Vasquez-Davidson · Christopherville, AA
+                          - listitem [ref=f2e270]:
+                            - generic [ref=f2e271] [cursor=pointer]:
+                              - checkbox "Senior Python Developer · Payne, Roberts and Davis · Stewartbury, AA" [ref=f2e272]
+                              - generic [ref=f2e273]:
+                                - text: Senior Python Developer
+                                - generic [ref=f2e274]: · Payne, Roberts and Davis · Stewartbury, AA
+                    - generic [ref=f2e189]:
+                      - button "开始匹配" [ref=f2e190] [cursor=pointer]
+                      - text: 匹配过程与结果复用上方的执行时间线和结果区
+            - generic [ref=f2e191]:
+              - button "🕸️ 03 岗位爬虫 抓取招聘 JD 并入库，可导出 CSV" [ref=f2e193] [cursor=pointer]:
+                - generic [ref=f2e194]: 🕸️
+                - generic [ref=f2e195]:
+                  - generic [ref=f2e196]:
+                    - generic [ref=f2e197]: "03"
+                    - text: 岗位爬虫
+                  - generic [ref=f2e198]: 抓取招聘 JD 并入库，可导出 CSV
+              - generic [ref=f2e202]:
+                - button [ref=f2e204] [cursor=pointer]:
+                  - generic [ref=f2e209]:
+                    - heading "⑥ 岗位爬虫面板" [level=3] [ref=f2e210]:
+                      - generic [ref=f2e211]: ⑥
+                      - text: 岗位爬虫面板
+                    - paragraph [ref=f2e212]: 抓取招聘 JD 并入库；URL 留空即使用默认演示站点
+                - generic [ref=f2e214]:
+                  - textbox "目标 URL（留空 = 默认站）" [ref=f2e215]
+                  - generic [ref=f2e216]:
+                    - text: 页数
+                    - spinbutton "页数" [ref=f2e217]: "1"
+                  - button "开始抓取" [ref=f2e218] [cursor=pointer]
+                  - button "导出 CSV" [ref=f2e219] [cursor=pointer]
+          - generic [ref=f2e220]: AgentInsight · MiMo Shell
+  - status [ref=f2e275]:
+    - generic [ref=f2e280]:
+      - text: Static route
+      - button "Hide static indicator" [ref=f2e281] [cursor=pointer]
+  - alert [ref=f2e285]

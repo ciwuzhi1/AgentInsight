@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import type { FinalResult } from "./ResultCard";
+import { Collapsible } from "./Collapsible";
 import {
   API_BASE,
   errText,
@@ -68,25 +69,31 @@ export default function HistoryPanel({
       a.href = URL.createObjectURL(blob);
       a.download = `task_${taskId.slice(0, 8)}.${fmt}`;
       a.click();
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
     } catch (e) {
       setError(errText(e));
     }
   }
 
   return (
-    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-[var(--text-primary)]">
-          🗂 任务历史（MySQL 持久，重启不丢）
+    <Collapsible
+      defaultOpen={false}
+      className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3"
+      header={
+        <h4 className="text-xs font-semibold text-[var(--text-primary)]">
+          🗂 任务历史
         </h4>
+      }
+      headerActions={
         <button
+          type="button"
           onClick={load}
-          className="btn-ghost rounded-lg border border-[var(--border-default)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"
+          className="btn-ghost shrink-0 rounded-md border border-[var(--border-default)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]"
         >
           {items ? "刷新" : "加载历史"}
         </button>
-      </div>
+      }
+    >
       {error && (
         <p className="mb-2 text-xs text-[var(--status-error)]">{error}</p>
       )}
@@ -155,6 +162,6 @@ export default function HistoryPanel({
           ))}
         </ul>
       )}
-    </div>
+    </Collapsible>
   );
 }

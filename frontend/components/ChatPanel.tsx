@@ -2,7 +2,7 @@
 
 /* 区块② 提交岗位问题：预设问题 chips + InputBar 输入 */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { InputBar } from "./InputBar";
 import { ErrorBar, Section } from "./ui";
 import type { DatasetInfo } from "./shared";
@@ -23,17 +23,23 @@ export default function ChatPanel({
   dataset,
   running,
   onStartTask,
+  suggestedPrompt,
 }: {
   dataset: DatasetInfo | null;
   running: boolean;
   onStartTask: (query: string) => void;
+  suggestedPrompt?: string | null;
 }) {
   const [preset, setPreset] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (suggestedPrompt) setPreset(suggestedPrompt);
+  }, [suggestedPrompt]);
+
   function handleSend(text: string) {
     if (!dataset) {
-      setError("请先在上方上传数据集");
+      setError("请先在「数据集」页上传 CSV");
       return;
     }
     setError(null);
@@ -46,24 +52,25 @@ export default function ChatPanel({
       step="②"
       title="提交岗位问题（提示词）"
       desc="Agent 会把你的岗位问题翻译成 SQL 并在引擎上执行，全过程实时可见"
+      collapsible
+      defaultOpen={true}
     >
       {/* 预设问题 chips */}
-      <div className="mb-3">
-        <p className="mb-2 text-xs text-[var(--text-muted)]">
-          常用岗位问题（点击填入，可修改后再提交）：
-        </p>
-        <div className="flex flex-wrap gap-2">
+      <div className="mb-2">
+        <p className="mb-1 text-[11px] text-[var(--text-muted)]">常用问题（点击填入）：</p>
+        <div className="flex flex-wrap gap-1">
           {JOB_PROMPT_PRESETS.map((q) => (
             <button
               key={q}
               type="button"
               onClick={() => setPreset(q)}
               disabled={!dataset || running}
-              className={`rounded-full border px-3 py-1.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`max-w-full truncate rounded-full border px-2 py-0.5 text-[11px] transition disabled:cursor-not-allowed disabled:opacity-40 ${
                 preset === q
                   ? "border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--primary-light)]"
                   : "border-[var(--border-default)] bg-[var(--bg-inset)] text-[var(--text-secondary)] hover:border-[var(--primary)]/50 hover:text-[var(--text-primary)]"
               }`}
+              title={q}
             >
               {q}
             </button>
@@ -84,14 +91,8 @@ export default function ChatPanel({
         }
       />
 
-      <p className="mt-3 text-xs text-[var(--text-muted)]">
-        提示词预设与数据集无硬绑定——上传什么数据集由你决定，建议搭配
-        <span className="font-mono text-[var(--text-secondary)]">
-          {" "}
-          jd_large.csv
-        </span>{" "}
-        使用（字段：job_id, title, company, city, salary_k, skills,
-        posted_date）。
+      <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+        建议搭配 <span className="font-mono">jd_large.csv</span>
       </p>
 
       {/* 运行中提示 */}

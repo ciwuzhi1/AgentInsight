@@ -1,0 +1,20 @@
+[   21488ms] [ERROR] Access to fetch at 'http://127.0.0.1:8100/api/health' from origin 'null' has been blocked by CORS policy: The request client is not a secure context and the resource is in more-private address space `loopback`. @ about:blank:0
+[   21488ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8100/api/health:0
+[   21489ms] [ERROR] Access to fetch at 'http://127.0.0.1:8100/api/datasets' from origin 'null' has been blocked by CORS policy: The request client is not a secure context and the resource is in more-private address space `loopback`. @ about:blank:0
+[   21489ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8100/api/datasets:0
+[   21489ms] [ERROR] Access to fetch at 'http://127.0.0.1:8100/api/tasks' from origin 'null' has been blocked by CORS policy: The request client is not a secure context and the resource is in more-private address space `loopback`. @ about:blank:0
+[   21489ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8100/api/tasks:0
+[   21490ms] [ERROR] Access to fetch at 'http://127.0.0.1:8100/api/tasks' from origin 'null' has been blocked by CORS policy: The request client is not a secure context and the resource is in more-private address space `loopback`. @ about:blank:0
+[   21490ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8100/api/tasks:0
+[   21491ms] [ERROR] Access to fetch at 'http://127.0.0.1:8100/api/resumes' from origin 'null' has been blocked by CORS policy: The request client is not a secure context and the resource is in more-private address space `loopback`. @ about:blank:0
+[   21491ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8100/api/resumes:0
+[   21492ms] [ERROR] Access to fetch at 'http://127.0.0.1:8100/api/matches' from origin 'null' has been blocked by CORS policy: The request client is not a secure context and the resource is in more-private address space `loopback`. @ about:blank:0
+[   21492ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8100/api/matches:0
+[   21492ms] [ERROR] Access to fetch at 'http://127.0.0.1:8100/api/crawler/jobs' from origin 'null' has been blocked by CORS policy: The request client is not a secure context and the resource is in more-private address space `loopback`. @ about:blank:0
+[   21492ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8100/api/crawler/jobs:0
+[   21493ms] [ERROR] Access to fetch at 'http://127.0.0.1:8100/api/crawler/run' from origin 'null' has been blocked by CORS policy: The request client is not a secure context and the resource is in more-private address space `loopback`. @ about:blank:0
+[   21493ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8100/api/crawler/run:0
+[   21494ms] [ERROR] Access to fetch at 'http://127.0.0.1:8100/api/crawler/export' from origin 'null' has been blocked by CORS policy: The request client is not a secure context and the resource is in more-private address space `loopback`. @ about:blank:0
+[   21494ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8100/api/crawler/export:0
+[   21495ms] [ERROR] Access to fetch at 'http://127.0.0.1:8100/api/tasks' from origin 'null' has been blocked by CORS policy: The request client is not a secure context and the resource is in more-private address space `loopback`. @ about:blank:0
+[   21495ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8100/api/tasks:0

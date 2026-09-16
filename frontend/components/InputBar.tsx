@@ -33,8 +33,8 @@ export function InputBar({
   }
 
   return (
-    <div className="glass-strong p-3">
-      <div className="flex items-end gap-2">
+    <div className="glass-strong p-2">
+      <div className="flex items-end gap-1.5">
         <textarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -42,13 +42,14 @@ export function InputBar({
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
-          className="max-h-40 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:border-[var(--primary)]/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          className="max-h-32 min-h-[2.25rem] flex-1 resize-none rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:border-[var(--primary)]/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         />
         <button
           type="button"
           onClick={submit}
           disabled={!canSend}
-          className="shrink-0 rounded-xl bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--primary-light)] disabled:cursor-not-allowed disabled:opacity-40"
+          style={{ color: "var(--on-primary, #fff)" }}
+          className="shrink-0 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium transition hover:bg-[var(--primary-light)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           发送
         </button>

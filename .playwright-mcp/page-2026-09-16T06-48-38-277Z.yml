@@ -1,0 +1,46 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - button "展开侧栏" [ref=e6]
+          - link "AgentInsight 首页" [ref=e9] [cursor=pointer]:
+            - /url: /
+            - generic [ref=e14]: AgentInsight
+        - navigation [ref=e15]:
+          - button "切换到暖黄主题" [ref=e16]:
+            - generic [ref=e20]: 深蓝
+          - link "设置" [ref=e21] [cursor=pointer]:
+            - /url: /settings
+            - generic [ref=e22]: ⚙
+          - button "T" [ref=e25]
+    - generic [ref=e27]:
+      - complementary "主导航侧栏" [ref=e28]:
+        - button "展开侧栏" [ref=e30]
+        - list [ref=e34]:
+          - listitem [ref=e35]:
+            - button "数据集" [ref=e36]
+          - listitem [ref=e42]:
+            - button "数据分析" [ref=e43]
+          - listitem [ref=e47]:
+            - button "简历匹配" [ref=e48]
+          - listitem [ref=e54]:
+            - button "岗位爬虫" [ref=e55]
+      - main [ref=e64]:
+        - generic [ref=e65]:
+          - generic [ref=e66]:
+            - heading "数据集上传 CSV，查看结构与规模" [level=1] [ref=e67]
+            - paragraph [ref=e68]: 后端 http://127.0.0.1:8100
+          - generic [ref=e70]:
+            - button "① 数据集上传 拖拽或选择 CSV 文件，系统会自动分析结构与规模" [expanded] [ref=e72] [cursor=pointer]:
+              - generic [ref=e73]:
+                - generic [ref=e74]:
+                  - generic [ref=e75]: ①
+                  - text: 数据集上传
+                - generic [ref=e76]: 拖拽或选择 CSV 文件，系统会自动分析结构与规模
+            - button "📄 拖拽 CSV 或点击选择 仅支持 .csv" [ref=e82] [cursor=pointer]:
+              - generic [ref=e83]: 📄
+              - generic [ref=e84]: 拖拽 CSV 或点击选择
+              - generic [ref=e85]: 仅支持 .csv
+              - button [ref=e86]
+  - alert [ref=e87]

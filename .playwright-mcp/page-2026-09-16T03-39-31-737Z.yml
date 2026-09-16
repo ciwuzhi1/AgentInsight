@@ -1,0 +1,159 @@
+- generic [ref=f1e2]:
+  - banner [ref=f1e3]:
+    - generic [ref=f1e4]:
+      - generic [ref=f1e5]:
+        - button "收起侧栏" [ref=f1e6]
+        - link "AgentInsight 首页" [ref=f1e9] [cursor=pointer]:
+          - /url: /
+          - generic [ref=f1e14]: AgentInsight
+      - navigation [ref=f1e15]:
+        - button "切换到暖黄主题" [ref=f1e16]:
+          - generic [ref=f1e20]: 深蓝
+        - link "设置" [ref=f1e21] [cursor=pointer]:
+          - /url: /settings
+          - generic [ref=f1e22]: ⚙
+  - generic [ref=f1e24]:
+    - complementary "主导航侧栏" [ref=f1e25]:
+      - generic [ref=f1e26]:
+        - generic [ref=f1e27]: 导航
+        - button "收起侧栏" [expanded] [ref=f1e28]
+      - generic [ref=f1e31]:
+        - list [ref=f1e32]:
+          - listitem [ref=f1e33]:
+            - link "数据分析" [ref=f1e34] [cursor=pointer]:
+              - /url: /#analysis
+          - listitem [ref=f1e39]:
+            - link "简历匹配" [ref=f1e40] [cursor=pointer]:
+              - /url: /#match
+          - listitem [ref=f1e47]:
+            - link "任务历史" [ref=f1e48] [cursor=pointer]:
+              - /url: /#analysis
+          - listitem [ref=f1e54]:
+            - link "岗位爬虫" [ref=f1e55] [cursor=pointer]:
+              - /url: /#crawler
+        - generic [ref=f1e61]:
+          - paragraph [ref=f1e62]: 快捷提问
+          - list [ref=f1e63]:
+            - listitem [ref=f1e64]:
+              - button "JD 中需求最多的技能 Top 10 是什么？" [ref=f1e65]
+            - listitem [ref=f1e66]:
+              - button "统计各城市的岗位数量和平均薪资" [ref=f1e67]
+            - listitem [ref=f1e68]:
+              - button "要求 Python 的岗位里哪个城市薪资最高？" [ref=f1e69]
+            - listitem [ref=f1e70]:
+              - button "各薪资区间的岗位数量分布" [ref=f1e71]
+            - listitem [ref=f1e72]:
+              - button "对比北京和上海的技能要求差异" [ref=f1e73]
+      - generic [ref=f1e74]: AgentInsight
+    - main [ref=f1e79]:
+      - generic [ref=f1e80]:
+        - generic [ref=f1e81]:
+          - heading "AgentInsight" [level=1] [ref=f1e82]
+          - paragraph [ref=f1e83]: 上传 CSV → 自然语言提问 → Agent 时间线 → 图表与结论；也可做简历匹配。 后端：http://127.0.0.1:8100
+        - generic [ref=f1e84]:
+          - generic [ref=f1e85]:
+            - button "📊 01 数据分析工作台 上传数据集、提交岗位问题，Agent 全过程实时可见，最终产出图表与结论" [expanded] [ref=f1e87] [cursor=pointer]:
+              - generic [ref=f1e88]: 📊
+              - generic [ref=f1e89]:
+                - generic [ref=f1e90]:
+                  - generic [ref=f1e91]: "01"
+                  - text: 数据分析工作台
+                - generic [ref=f1e92]: 上传数据集、提交岗位问题，Agent 全过程实时可见，最终产出图表与结论
+            - generic [ref=f1e98]:
+              - generic [ref=f1e99]:
+                - generic [ref=f1e100]:
+                  - button "① 数据集上传 拖拽或选择 CSV 文件，系统会自动分析结构与规模" [expanded] [ref=f1e102] [cursor=pointer]:
+                    - generic [ref=f1e103]:
+                      - generic [ref=f1e104]:
+                        - generic [ref=f1e105]: ①
+                        - text: 数据集上传
+                      - generic [ref=f1e106]: 拖拽或选择 CSV 文件，系统会自动分析结构与规模
+                  - generic [ref=f1e112] [cursor=pointer]:
+                    - generic [ref=f1e113]: 📄
+                    - paragraph [ref=f1e114]: 拖拽 CSV 文件到这里，或点击选择
+                    - paragraph [ref=f1e115]: 仅支持 .csv 格式
+                - generic [ref=f1e116]:
+                  - button "② 提交岗位问题（提示词） Agent 会把你的岗位问题翻译成 SQL 并在引擎上执行，全过程实时可见" [expanded] [ref=f1e118] [cursor=pointer]:
+                    - generic [ref=f1e119]:
+                      - generic [ref=f1e120]:
+                        - generic [ref=f1e121]: ②
+                        - text: 提交岗位问题（提示词）
+                      - generic [ref=f1e122]: Agent 会把你的岗位问题翻译成 SQL 并在引擎上执行，全过程实时可见
+                  - generic [ref=f1e127]:
+                    - generic [ref=f1e128]:
+                      - paragraph [ref=f1e129]: 常用岗位问题（点击填入，可修改后再提交）：
+                      - generic [ref=f1e130]:
+                        - button "JD 中需求最多的技能 Top 10 是什么？" [disabled] [ref=f1e131]
+                        - button "统计各城市的岗位数量和平均薪资，按数量降序" [disabled] [ref=f1e132]
+                        - button "要求 Python 的岗位里，哪个城市平均薪资最高？" [disabled] [ref=f1e133]
+                        - button "各薪资区间（salary_k）的岗位数量分布" [disabled] [ref=f1e134]
+                        - button "'Python+SQL' 同时出现的岗位有多少？" [disabled] [ref=f1e135]
+                        - button "对比北京和上海岗位的技能要求差异" [disabled] [ref=f1e136]
+                        - button "最近发布（2025-05 之后）的岗位最常见 5 项技能" [disabled] [ref=f1e137]
+                        - button "岗位数量最多的公司 Top 5" [disabled] [ref=f1e138]
+                    - generic [ref=f1e140]:
+                      - textbox "请先上传数据集，再在这里输入问题…" [disabled] [ref=f1e141]
+                      - button "发送" [disabled] [ref=f1e142]
+                    - paragraph [ref=f1e143]:
+                      - text: 提示词预设与数据集无硬绑定——上传什么数据集由你决定，建议搭配
+                      - generic [ref=f1e144]: jd_large.csv
+                      - text: 使用（字段：job_id, title, company, city, salary_k, skills, posted_date）。
+              - generic [ref=f1e147]:
+                - button [ref=f1e148] [cursor=pointer]:
+                  - heading "🗂 任务历史（MySQL 持久，重启不丢）" [level=4] [ref=f1e153]
+                - button "加载历史" [ref=f1e154] [cursor=pointer]
+          - generic [ref=f1e156]:
+            - button "🧩 02 简历匹配 上传简历、从岗位库选岗，由多 Agent 打分、找技能缺口并生成解读" [ref=f1e158] [cursor=pointer]:
+              - generic [ref=f1e159]: 🧩
+              - generic [ref=f1e160]:
+                - generic [ref=f1e161]:
+                  - generic [ref=f1e162]: "02"
+                  - text: 简历匹配
+                - generic [ref=f1e163]: 上传简历、从岗位库选岗，由多 Agent 打分、找技能缺口并生成解读
+            - generic [ref=f1e168]:
+              - button "⑤ 简历匹配 上传简历，选择岗位（数据来自下方爬虫面板），由多 Agent 打分与解读" [ref=f1e170] [cursor=pointer]:
+                - generic [ref=f1e171]:
+                  - generic [ref=f1e172]:
+                    - generic [ref=f1e173]: ⑤
+                    - text: 简历匹配
+                  - generic [ref=f1e174]: 上传简历，选择岗位（数据来自下方爬虫面板），由多 Agent 打分与解读
+              - generic:
+                - generic:
+                  - generic [ref=f1e178]:
+                    - generic [ref=f1e179]:
+                      - paragraph [ref=f1e180]: 上传简历
+                      - generic [ref=f1e181]:
+                        - button "Choose File" [ref=f1e182] [cursor=pointer]
+                        - button "上传简历" [ref=f1e183] [cursor=pointer]
+                      - paragraph [ref=f1e184]: 支持 pdf / docx / txt，最大 10MB；再次上传会覆盖之前的简历。
+                    - generic [ref=f1e185]:
+                      - button "▶ 选择岗位（最多 5 个，已选 0）" [ref=f1e187]:
+                        - generic [ref=f1e188]: ▶
+                        - text: 选择岗位（最多 5 个，已选 0）
+                      - paragraph [ref=f1e189]: 岗位库还是空的：请先在下方爬虫面板抓取岗位，然后刷新本页。
+                  - generic [ref=f1e190]:
+                    - button "开始匹配" [ref=f1e191] [cursor=pointer]
+                    - text: 匹配过程与结果复用上方的执行时间线和结果区
+          - generic [ref=f1e192]:
+            - button "🕸️ 03 岗位爬虫 抓取招聘 JD 并入库，可一键导出 CSV" [ref=f1e194] [cursor=pointer]:
+              - generic [ref=f1e195]: 🕸️
+              - generic [ref=f1e196]:
+                - generic [ref=f1e197]:
+                  - generic [ref=f1e198]: "03"
+                  - text: 岗位爬虫
+                - generic [ref=f1e199]: 抓取招聘 JD 并入库，可一键导出 CSV
+            - generic [ref=f1e203]:
+              - button [ref=f1e205] [cursor=pointer]:
+                - generic [ref=f1e210]:
+                  - heading "⑥ 岗位爬虫面板" [level=3] [ref=f1e211]:
+                    - generic [ref=f1e212]: ⑥
+                    - text: 岗位爬虫面板
+                  - paragraph [ref=f1e213]: 抓取招聘 JD 并入库；URL 留空即使用默认演示站点
+              - generic [ref=f1e215]:
+                - textbox "目标 URL（留空 = 默认站）" [ref=f1e216]
+                - generic [ref=f1e217]:
+                  - text: 页数
+                  - spinbutton "页数" [ref=f1e218]: "1"
+                - button "开始抓取" [ref=f1e219] [cursor=pointer]
+                - button "导出 CSV" [ref=f1e220] [cursor=pointer]
+        - generic [ref=f1e221]: AgentInsight · MiMo Shell · Next.js 15 + React 19 + Tailwind v4

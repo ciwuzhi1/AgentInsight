@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 // ECharts 按需引入：只注册 bar/line + 必要组件，减少 bundle ~70%
 import * as echarts from "echarts/core";
 import { BarChart, LineChart } from "echarts/charts";
@@ -50,20 +50,33 @@ export default function ChartBox({
 }: ChartBoxProps) {
   const divRef = useRef<HTMLDivElement>(null);
   const instRef = useRef<ReturnType<typeof echarts.init> | null>(null);
+  const [themeTick, setThemeTick] = useState(0);
 
-  // 挂载时 init 一次，卸载时 dispose
+  // 主题切换后重算轴色
+  useEffect(() => {
+    const obs = new MutationObserver(() => setThemeTick((t) => t + 1));
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    return () => obs.disconnect();
+  }, []);
+
+  // 主题切换后重建实例（echarts 主题在 init 时固定）；themeTick=0 时首次挂载也会跑
   useEffect(() => {
     if (!divRef.current) return;
-    const inst = echarts.init(divRef.current, "dark");
+    instRef.current?.dispose();
+    const light = document.documentElement.getAttribute("data-theme") === "amber";
+    const inst = echarts.init(divRef.current, light ? undefined : "dark");
     instRef.current = inst;
     const onResize = () => inst.resize();
     window.addEventListener("resize", onResize);
     return () => {
       window.removeEventListener("resize", onResize);
       inst.dispose();
-      instRef.current = null;
+      if (instRef.current === inst) instRef.current = null;
     };
-  }, []);
+  }, [themeTick]);
 
   // 数据变化时把 option 塞给图表实例
   useEffect(() => {
@@ -82,8 +95,11 @@ export default function ChartBox({
         }),
       };
     });
-    // Canvas 渲染器无法解析 CSS 变量，轴标签用字面色值
-    const axisColor = "#94a3b8"; // var(--chart-axis-label)
+    // Canvas 吃不到 CSS 变量，运行时解析当前主题
+    const axisColor =
+      getComputedStyle(document.documentElement)
+        .getPropertyValue("--chart-axis-label")
+        .trim() || "#94a3b8";
     inst.setOption({
       backgroundColor: "transparent",
       tooltip: { trigger: "axis" },
@@ -97,7 +113,7 @@ export default function ChartBox({
       yAxis: { type: "value", axisLabel: { color: axisColor } },
       series,
     });
-  }, [chart, columns, rows]);
+  }, [chart, columns, rows, themeTick]);
 
   return <div ref={divRef} className={heightClass} />;
 }

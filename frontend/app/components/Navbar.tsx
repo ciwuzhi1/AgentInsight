@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getToken, getUsername, clearAuth } from "../auth-client";
 
-/** AI 图标：圆角方块 + 闪烁星形，搭配主色渐变 */
-function AiIcon({ className = "h-8 w-8" }: { className?: string }) {
+/** AI 图标：圆角方块 + 四芒星 */
+function AiIcon({ className = "h-7 w-7" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 32 32"
@@ -38,41 +38,61 @@ function AiIcon({ className = "h-8 w-8" }: { className?: string }) {
         strokeWidth="1.5"
         opacity="0.85"
       />
-      {/* 四芒星：代表 AI 能力 */}
       <path
         d="M16 7.5c.4 3.6 2.4 5.6 6 6-3.6.4-5.6 2.4-6 6-.4-3.6-2.4-5.6-6-6 3.6-.4 5.6-2.4 6-6z"
         fill="url(#ai-icon-grad)"
       />
-      <circle cx="23.5" cy="9.5" r="1.4" fill="var(--primary-light)" opacity="0.9" />
-      <circle cx="9" cy="22.5" r="1.1" fill="var(--primary)" opacity="0.75" />
     </svg>
   );
 }
 
 /**
- * 顶部固定导航：毛玻璃 + Logo + 设置入口 + 登录/用户头像。
+ * MiMo 风格顶栏：汉堡 + Logo + 主题/设置 + 可选用户菜单。
  * localStorage 只在 useEffect 里读，避免 SSR 水合不一致。
  */
-export default function Navbar() {
+export default function Navbar({
+  onToggleSidebar,
+  sidebarCollapsed,
+  theme = "navy",
+  onToggleTheme,
+}: {
+  onToggleSidebar?: () => void;
+  sidebarCollapsed?: boolean;
+  theme?: "navy" | "amber";
+  onToggleTheme?: () => void;
+} = {}) {
   const [username, setUsername] = useState<string | null>(null);
   const [authed, setAuthed] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setAuthed(Boolean(getToken()));
     setUsername(getUsername());
   }, []);
 
+  // 点击菜单外部关闭
+  useEffect(() => {
+    if (!avatarOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setAvatarOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [avatarOpen]);
+
   function logout() {
     clearAuth();
     setAuthed(false);
     setUsername(null);
     setAvatarOpen(false);
-    window.location.href = "/login";
+    window.location.href = "/";
   }
 
-  /** 头像首字母：中英文用户名都取第一个字符 */
   const initial = username ? username.slice(0, 1).toUpperCase() : "?";
+  const hamburgerLabel = sidebarCollapsed ? "展开侧栏" : "收起侧栏";
 
   return (
     <header
@@ -84,72 +104,98 @@ export default function Navbar() {
         borderColor: "var(--border-glass)",
       }}
     >
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
-        {/* Logo */}
-        <Link
-          href="/"
-          className="btn-glow flex items-center gap-2.5 rounded-xl px-1 py-1"
-          aria-label="AgentInsight 首页"
-        >
-          <AiIcon />
-          <span
-            className="text-lg font-bold tracking-tight"
-            style={{ color: "var(--text-primary)" }}
+      <div className="flex h-[52px] items-center justify-between px-3 sm:px-4">
+        {/* 左侧：汉堡 + Logo */}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onToggleSidebar?.()}
+            aria-label={hamburgerLabel}
+            className="flex h-9 w-9 items-center justify-center rounded-lg transition hover-surface"
+            style={{ color: "var(--text-secondary)" }}
           >
-            Agent
-            <span
-              className="bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent"
-            >
-              Insight
-            </span>
-          </span>
-        </Link>
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path
+                d="M3 5h12M3 9h12M3 13h12"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
 
-        {/* 右侧操作区 */}
-        <nav className="flex items-center gap-2 sm:gap-3">
+          <Link
+            href="/"
+            className="flex items-center gap-2 rounded-lg px-1.5 py-1"
+            aria-label="AgentInsight 首页"
+          >
+            <AiIcon />
+            <span
+              className="text-base font-semibold tracking-tight"
+              style={{ color: "var(--text-primary)" }}
+            >
+              Agent
+              <span className="text-gradient-brand">Insight</span>
+            </span>
+          </Link>
+        </div>
+
+        {/* 右侧：主题 + 设置 + 可选用户 */}
+        <nav className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onToggleTheme?.()}
+            className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-sm transition hover-surface"
+            style={{ color: "var(--text-secondary)" }}
+            aria-label={theme === "navy" ? "切换到暖黄主题" : "切换到深蓝主题"}
+            title={theme === "navy" ? "暖黄" : "深蓝"}
+          >
+            {theme === "navy" ? (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <circle cx="8" cy="8" r="3.2" stroke="currentColor" strokeWidth="1.4" />
+                <path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                <path d="M13.5 9.2A5.5 5.5 0 016.8 2.5 5.6 5.6 0 1013.5 9.2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              </svg>
+            )}
+            <span className="hidden sm:inline">{theme === "navy" ? "深蓝" : "暖黄"}</span>
+          </button>
+
           <Link
             href="/settings"
-            className="btn-glow flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition"
-            style={{
-              borderColor: "var(--border-glass)",
-              color: "var(--text-secondary)",
-              background: "var(--bg-card)",
-            }}
+            aria-label="设置"
+            className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-sm transition hover-surface"
+            style={{ color: "var(--text-secondary)" }}
           >
             <span aria-hidden="true">⚙</span>
             <span className="hidden sm:inline">设置</span>
           </Link>
 
           {authed ? (
-            <div className="relative">
+            <div className="relative" ref={menuRef}>
               <button
                 type="button"
                 onClick={() => setAvatarOpen((v) => !v)}
-                className="btn-glow flex items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-sm"
-                style={{
-                  borderColor: "var(--border-glass)",
-                  background: "var(--bg-card)",
-                  color: "var(--text-primary)",
-                }}
+                className="flex h-8 items-center gap-1.5 rounded-lg px-1.5 text-sm transition hover-surface"
+                style={{ color: "var(--text-primary)" }}
                 aria-haspopup="menu"
                 aria-expanded={avatarOpen}
               >
                 <span
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold text-white"
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold text-white"
                   style={{
                     background: "linear-gradient(135deg, var(--primary-light), var(--primary-dark))",
                   }}
                 >
                   {initial}
                 </span>
-                <span className="hidden max-w-[8rem] truncate sm:inline">
-                  {username ?? "用户"}
-                </span>
               </button>
 
               {avatarOpen && (
                 <div
-                  className="glass absolute right-0 mt-2 w-40 overflow-hidden py-1"
+                  className="glass absolute right-0 mt-1.5 w-40 overflow-hidden py-1"
                   role="menu"
                 >
                   <p
@@ -164,7 +210,7 @@ export default function Navbar() {
                   <button
                     type="button"
                     onClick={logout}
-                    className="block w-full px-3 py-2 text-left text-sm transition hover:bg-white/5"
+                    className="block w-full px-3 py-2 text-left text-sm transition hover-surface"
                     style={{ color: "var(--text-secondary)" }}
                     role="menuitem"
                   >
@@ -173,17 +219,7 @@ export default function Navbar() {
                 </div>
               )}
             </div>
-          ) : (
-            <Link
-              href="/login"
-              className="btn-glow rounded-lg px-4 py-1.5 text-sm font-medium text-white"
-              style={{
-                background: "linear-gradient(135deg, var(--primary), var(--primary-dark))",
-              }}
-            >
-              登录
-            </Link>
-          )}
+          ) : null}
         </nav>
       </div>
     </header>

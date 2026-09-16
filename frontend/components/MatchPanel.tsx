@@ -14,9 +14,11 @@ import {
 export default function MatchPanel({
   running,
   onStartMatch,
+  onLog,
 }: {
   running: boolean;
   onStartMatch: (resumeId: string, jobIds: number[]) => void;
+  onLog?: (text: string, level?: "info" | "ok" | "error" | "warn") => void;
 }) {
   const [resume, setResume] = useState<{
     resume_id: string;
@@ -33,6 +35,7 @@ export default function MatchPanel({
 
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
+  const [jobsOpen, setJobsOpen] = useState(false);
 
   // 打开页面即拉取岗位库（数据来自爬虫面板）
   useEffect(() => {
@@ -79,8 +82,11 @@ export default function MatchPanel({
       };
       setResume(data);
       setOkMsg(`简历已上传（重复上传会覆盖之前的选择）`);
+      onLog?.(`简历已上传：${data.filename}（${data.resume_id.slice(0, 8)}…）`, "ok");
     } catch (e) {
-      setError(errText(e));
+      const msg = errText(e);
+      setError(msg);
+      onLog?.(`简历上传失败：${msg}`, "error");
     } finally {
       setUploading(false);
     }
@@ -94,7 +100,9 @@ export default function MatchPanel({
         return prev;
       }
       setError(null);
-      return [...prev, id];
+      const next = [...prev, id];
+      onLog?.(`勾选岗位 #${id}（已选 ${next.length}）`);
+      return next;
     });
   }
 
@@ -116,7 +124,9 @@ export default function MatchPanel({
     <Section
       step="⑤"
       title="简历匹配"
-      desc="上传简历，选择岗位（数据来自下方爬虫面板），由多 Agent 打分与解读"
+      desc="上传简历并勾选岗位，多 Agent 打分与技能缺口解读"
+      collapsible
+      defaultOpen
     >
       <div className="grid gap-6 md:grid-cols-2">
         {/* 左半：上传简历 */}
@@ -130,12 +140,12 @@ export default function MatchPanel({
               type="file"
               accept=".pdf,.docx,.txt"
               onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
-              className="block w-full cursor-pointer rounded-lg border border-[var(--border-default)] bg-[var(--bg-inset)] px-3 py-2 text-sm text-[var(--text-secondary)] file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-[var(--primary)] file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:file:bg-[var(--primary-light)]"
+              className="block w-full cursor-pointer rounded-lg border border-[var(--border-default)] bg-[var(--bg-inset)] px-3 py-2 text-sm text-[var(--text-secondary)] file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-[var(--primary)] file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-[var(--primary-light)]"
             />
             <button
               onClick={uploadResume}
               disabled={uploading}
-              className="btn-primary rounded-lg px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn-primary rounded-lg px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
             >
               {uploading ? "上传中…" : "上传简历"}
             </button>
@@ -156,12 +166,22 @@ export default function MatchPanel({
           </p>
         </div>
 
-        {/* 右半：选择岗位 */}
+        {/* 右半：选择岗位（列表可折叠） */}
         <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-inset)] p-4">
           <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-medium text-[var(--text-primary)]">
+            <button
+              type="button"
+              onClick={() => setJobsOpen((o) => !o)}
+              className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)] transition hover:text-[var(--primary-light)]"
+              aria-expanded={jobsOpen}
+            >
+              <span
+                className={`inline-block text-xs transition-transform duration-200 ${jobsOpen ? "rotate-90" : ""}`}
+              >
+                ▶
+              </span>
               选择岗位（最多 5 个，已选 {selected.length}）
-            </p>
+            </button>
             {selected.length > 0 && (
               <button
                 onClick={() => setSelected([])}
@@ -171,42 +191,50 @@ export default function MatchPanel({
               </button>
             )}
           </div>
-          {jobsLoading && (
-            <p className="animate-pulse text-sm text-[var(--text-secondary)]">
-              正在加载岗位库…
-            </p>
-          )}
-          {jobsError && <ErrorBar message={jobsError} />}
-          {!jobsLoading && !jobsError && jobs.length === 0 && (
-            <p className="rounded-lg border border-dashed border-[var(--border-default)] py-6 text-center text-sm text-[var(--text-muted)]">
-              岗位库还是空的：请先在下方爬虫面板抓取岗位，然后刷新本页。
-            </p>
-          )}
-          {jobs.length > 0 && (
-            <ul className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
-              {jobs.map((job) => (
-                <li key={job.id}>
-                  <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-transparent px-2 py-1.5 text-sm transition hover:border-[var(--border-default)] hover:bg-[var(--bg-inset)]">
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(job.id)}
-                      onChange={() => toggleJob(job.id)}
-                      className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
-                    />
-                    <span>
-                      <span className="text-[var(--text-primary)]">
-                        {job.title}
-                      </span>
-                      <span className="text-[var(--text-muted)]">
-                        {job.company ? ` · ${job.company}` : ""}
-                        {job.location ? ` · ${job.location}` : ""}
-                      </span>
-                    </span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          )}
+          <div
+            className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+              jobsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+            }`}
+          >
+            <div className="overflow-hidden">
+              {jobsLoading && (
+                <p className="animate-pulse text-sm text-[var(--text-secondary)]">
+                  正在加载岗位库…
+                </p>
+              )}
+              {jobsError && <ErrorBar message={jobsError} />}
+              {!jobsLoading && !jobsError && jobs.length === 0 && (
+                <p className="rounded-lg border border-dashed border-[var(--border-default)] py-6 text-center text-sm text-[var(--text-muted)]">
+                  岗位库还是空的：请先在下方爬虫面板抓取岗位，然后刷新本页。
+                </p>
+              )}
+              {jobs.length > 0 && (
+                <ul className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+                  {jobs.map((job) => (
+                    <li key={job.id}>
+                      <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-transparent px-2 py-1.5 text-sm transition hover:border-[var(--border-default)] hover:bg-[var(--bg-inset)]">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(job.id)}
+                          onChange={() => toggleJob(job.id)}
+                          className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
+                        />
+                        <span>
+                          <span className="text-[var(--text-primary)]">
+                            {job.title}
+                          </span>
+                          <span className="text-[var(--text-muted)]">
+                            {job.company ? ` · ${job.company}` : ""}
+                            {job.location ? ` · ${job.location}` : ""}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -217,7 +245,7 @@ export default function MatchPanel({
         <button
           onClick={startMatch}
           disabled={running}
-          className="btn-primary rounded-lg px-5 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="btn-primary rounded-lg px-5 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50"
         >
           {running ? "匹配进行中…" : "开始匹配"}
         </button>

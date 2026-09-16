@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { getToken, installAuthFetch } from "../auth-client";
+import { installAuthFetch } from "../auth-client";
 
 installAuthFetch();
 
@@ -51,7 +51,14 @@ async function readError(res: Response): Promise<Error> {
 
 function ErrorBar({ message }: { message: string }) {
   return (
-    <div className="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+    <div
+      className="mt-3 rounded-lg border px-4 py-3 text-sm"
+      style={{
+        borderColor: "var(--status-error-border)",
+        background: "var(--status-error-bg)",
+        color: "var(--status-error)",
+      }}
+    >
       出错了：{message}
     </div>
   );
@@ -59,7 +66,14 @@ function ErrorBar({ message }: { message: string }) {
 
 function OkBar({ message }: { message: string }) {
   return (
-    <div className="mt-3 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+    <div
+      className="mt-3 rounded-lg border px-4 py-3 text-sm"
+      style={{
+        borderColor: "var(--status-ok-border)",
+        background: "var(--status-ok-bg)",
+        color: "var(--status-ok)",
+      }}
+    >
       {message}
     </div>
   );
@@ -72,17 +86,42 @@ function Badge({
   children: React.ReactNode;
   tone?: "slate" | "green" | "red" | "amber" | "sky" | "violet";
 }) {
-  const tones: Record<string, string> = {
-    slate: "border-slate-600 bg-slate-800 text-slate-300",
-    green: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
-    red: "border-red-500/40 bg-red-500/10 text-red-300",
-    amber: "border-amber-500/40 bg-amber-500/10 text-amber-300",
-    sky: "border-sky-500/40 bg-sky-500/10 text-sky-300",
-    violet: "border-violet-500/40 bg-violet-500/10 text-violet-300",
+  const tones: Record<string, React.CSSProperties> = {
+    slate: {
+      borderColor: "var(--border-default)",
+      background: "var(--bg-inset)",
+      color: "var(--text-secondary)",
+    },
+    green: {
+      borderColor: "var(--status-ok-border)",
+      background: "var(--status-ok-bg)",
+      color: "var(--status-ok)",
+    },
+    red: {
+      borderColor: "var(--status-error-border)",
+      background: "var(--status-error-bg)",
+      color: "var(--status-error)",
+    },
+    amber: {
+      borderColor: "var(--status-running-border)",
+      background: "var(--status-running-bg)",
+      color: "var(--status-running)",
+    },
+    sky: {
+      borderColor: "var(--accent-sky-border)",
+      background: "var(--accent-sky-bg)",
+      color: "var(--accent-sky)",
+    },
+    violet: {
+      borderColor: "var(--accent-violet)",
+      background: "color-mix(in srgb, var(--accent-violet) 10%, transparent)",
+      color: "var(--accent-violet)",
+    },
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${tones[tone]}`}
+      className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium"
+      style={tones[tone]}
     >
       {children}
     </span>
@@ -102,14 +141,20 @@ function SettingsCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-lg shadow-black/20 sm:p-6">
-      <div className="mb-5 flex items-start gap-3 border-b border-slate-800/70 pb-4">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-xl">
+    <section className="glass p-5 shadow-lg shadow-black/20 sm:p-6">
+      <div
+        className="mb-5 flex items-start gap-3 border-b pb-4"
+        style={{ borderColor: "var(--border-glass)" }}
+      >
+        <span
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xl"
+          style={{ background: "var(--primary)", opacity: 0.12 }}
+        >
           {icon}
         </span>
         <div>
-          <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
-          <p className="mt-0.5 text-sm text-slate-400">{desc}</p>
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h2>
+          <p className="mt-0.5 text-sm text-[var(--text-secondary)]">{desc}</p>
         </div>
       </div>
       {children}
@@ -125,10 +170,6 @@ export default function SettingsPage() {
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    // 未登录直接去登录页（fetch 补丁兜底 401 跳转）
-    if (!getToken()) window.location.href = "/login";
-  }, []);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -313,32 +354,38 @@ export default function SettingsPage() {
   }
 
   const inputCls =
-    "rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-sky-500 focus:outline-none";
+    "rounded-lg border border-[var(--border-strong)] bg-[var(--bg-inset)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--primary)] focus:outline-none";
 
   return (
     <div>
       {/* 吸顶返回导航条 */}
-      <nav className="sticky top-0 z-40 -mx-4 mb-8 border-b border-slate-800/80 bg-slate-950/70 px-4 py-3 backdrop-blur">
+      <nav
+        className="sticky top-0 z-40 -mx-4 mb-8 border-b px-4 py-3 backdrop-blur"
+        style={{
+          borderColor: "var(--border-glass)",
+          background: "var(--bg-glass-strong)",
+        }}
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Link
             href="/"
-            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm text-slate-400 transition hover:bg-slate-800/60 hover:text-sky-300"
+            className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm text-[var(--text-secondary)] transition hover:bg-[var(--bg-inset)] hover:text-[var(--primary-light)]"
           >
             ← 返回分析台
           </Link>
-          <span className="text-sm font-semibold text-slate-300">
+          <span className="text-sm font-semibold text-[var(--text-primary)]">
             ⚙ 设置中心
           </span>
         </div>
       </nav>
 
       <header className="pb-8">
-        <h1 className="text-3xl font-bold tracking-tight text-slate-100">
-          设置<span className="bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">中心</span>
+        <h1 className="text-3xl font-bold tracking-tight text-[var(--text-primary)]">
+          设置<span className="text-gradient-brand">中心</span>
         </h1>
-        <p className="mt-2 text-sm text-slate-400">
+        <p className="mt-2 text-sm text-[var(--text-secondary)]">
           模型配置与功能开关，保存后立即生效（后端有 10 秒缓存）。后端：
-          <span className="font-mono text-slate-500">{API_BASE}</span>
+          <span className="font-mono text-[var(--text-muted)]">{API_BASE}</span>
         </p>
       </header>
 
@@ -346,7 +393,7 @@ export default function SettingsPage() {
         {(busy || error || okMsg) && (
           <div>
             {busy && models.length === 0 && !error && (
-              <p className="animate-pulse py-6 text-center text-sm text-slate-500">
+              <p className="animate-pulse py-6 text-center text-sm text-[var(--text-muted)]">
                 正在加载设置…
               </p>
             )}
@@ -362,7 +409,10 @@ export default function SettingsPage() {
           desc="已接入的模型列表，可激活、测试连通或删除"
         >
           {models.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-slate-800 py-6 text-center text-sm text-slate-500">
+            <p
+              className="rounded-lg border border-dashed py-6 text-center text-sm text-[var(--text-muted)]"
+              style={{ borderColor: "var(--border-default)" }}
+            >
               暂无模型配置（当前使用后端 .env 的默认模型）
             </p>
           ) : (
@@ -370,10 +420,10 @@ export default function SettingsPage() {
               {models.map((m) => (
                 <li
                   key={m.id}
-                  className="rounded-lg border border-slate-800 bg-slate-800/40 px-4 py-3"
+                  className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-inset)] px-4 py-3"
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-slate-200">
+                    <span className="text-sm font-medium text-[var(--text-primary)]">
                       {m.name}
                     </span>
                     <Badge tone="sky">{m.provider}</Badge>
@@ -385,18 +435,19 @@ export default function SettingsPage() {
                     )}
                     <Badge tone="slate">key: {m.api_key}</Badge>
                   </div>
-                  <p className="mt-1 font-mono text-xs text-slate-500">
+                  <p className="mt-1 font-mono text-xs text-[var(--text-muted)]">
                     {m.base_url} · temperature {m.temperature}
                   </p>
                   {testResult[m.id] && (
                     <p
-                      className={`mt-1 text-xs ${
-                        testResult[m.id].startsWith("连通")
-                          ? "text-emerald-400"
+                      className="mt-1 text-xs"
+                      style={{
+                        color: testResult[m.id].startsWith("连通")
+                          ? "var(--status-ok)"
                           : testResult[m.id] === "测试中…"
-                            ? "text-slate-400"
-                            : "text-red-400"
-                      }`}
+                            ? "var(--text-secondary)"
+                            : "var(--status-error)",
+                      }}
                     >
                       测试结果：{testResult[m.id]}
                     </p>
@@ -405,21 +456,36 @@ export default function SettingsPage() {
                     <button
                       onClick={() => activateModel(m.id)}
                       disabled={busy || m.is_active}
-                      className="rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="btn-ghost rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{
+                        borderColor: "var(--status-ok-border)",
+                        background: "var(--status-ok-bg)",
+                        color: "var(--status-ok)",
+                      }}
                     >
                       激活
                     </button>
                     <button
                       onClick={() => testModel(m.id)}
                       disabled={testingId === m.id}
-                      className="rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="btn-ghost rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{
+                        borderColor: "var(--accent-sky-border)",
+                        background: "var(--accent-sky-bg)",
+                        color: "var(--accent-sky)",
+                      }}
                     >
                       {testingId === m.id ? "测试中…" : "测试连通"}
                     </button>
                     <button
                       onClick={() => deleteModel(m.id)}
                       disabled={busy}
-                      className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="btn-ghost rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{
+                        borderColor: "var(--status-error-border)",
+                        background: "var(--status-error-bg)",
+                        color: "var(--status-error)",
+                      }}
                     >
                       删除
                     </button>
@@ -487,7 +553,7 @@ export default function SettingsPage() {
           <button
             onClick={addModel}
             disabled={busy}
-            className="mt-4 rounded-lg bg-sky-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-primary mt-4 px-5 py-2 text-sm"
           >
             添加模型
           </button>
@@ -505,8 +571,8 @@ export default function SettingsPage() {
                 key={meta.key}
                 className="flex flex-wrap items-center gap-3 text-sm"
               >
-                <span className="w-40 shrink-0 text-slate-300">{meta.label}</span>
-                <span className="font-mono text-xs text-slate-600">
+                <span className="w-40 shrink-0 text-[var(--text-primary)]">{meta.label}</span>
+                <span className="font-mono text-xs text-[var(--text-faint)]">
                   {meta.key}
                 </span>
                 {meta.kind === "select" ? (
@@ -543,20 +609,25 @@ export default function SettingsPage() {
                 <button
                   onClick={() => saveSetting(meta)}
                   disabled={busy}
-                  className="rounded-lg border border-sky-500/50 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="btn-ghost rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{
+                    borderColor: "var(--accent-sky-border)",
+                    background: "var(--accent-sky-bg)",
+                    color: "var(--accent-sky)",
+                  }}
                 >
                   保存
                 </button>
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-xs text-slate-500">
+          <p className="mt-3 text-xs text-[var(--text-muted)]">
             密钥类输入框留空表示不修改；保存后立即生效（后端有 10 秒缓存）。
           </p>
         </SettingsCard>
       </div>
 
-      <footer className="pb-6 pt-10 text-center text-xs text-slate-600">
+      <footer className="pb-6 pt-10 text-center text-xs text-[var(--text-faint)]">
         AgentInsight MVP · Next.js 15 + React 19 + Tailwind v4 + ECharts 5
       </footer>
     </div>

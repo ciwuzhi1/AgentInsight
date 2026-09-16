@@ -3,10 +3,15 @@
 /* 区块⑥ 爬虫面板 */
 
 import { useState } from "react";
-import { ErrorBar, Badge, Section } from "./ui";
+import { ErrorBar, Badge } from "./ui";
+import { Collapsible } from "./Collapsible";
 import { API_BASE, errText, readError, type JobItem } from "./shared";
 
-export default function CrawlerPanel() {
+export default function CrawlerPanel({
+  onLog,
+}: {
+  onLog?: (text: string, level?: "info" | "ok" | "error" | "warn") => void;
+} = {}) {
   const [url, setUrl] = useState("");
   const [pages, setPages] = useState(1);
   const [busy, setBusy] = useState(false);
@@ -23,6 +28,7 @@ export default function CrawlerPanel() {
     setBusy(true);
     setError(null);
     setExported(null);
+    onLog?.(`开始抓取（页数 ${pages}${url.trim() ? ` · ${url.trim()}` : " · 默认站"}）`);
     try {
       const body: Record<string, unknown> = { pages };
       if (url.trim()) body.url = url.trim();
@@ -39,8 +45,14 @@ export default function CrawlerPanel() {
       };
       setStat({ inserted: data.inserted, skipped: data.skipped });
       setJobs(data.items ?? []);
+      onLog?.(
+        `抓取完成：入库 ${data.inserted}，跳过 ${data.skipped}`,
+        "ok"
+      );
     } catch (e) {
-      setError(errText(e));
+      const msg = errText(e);
+      setError(msg);
+      onLog?.(`抓取失败：${msg}`, "error");
     } finally {
       setBusy(false);
     }
@@ -49,24 +61,41 @@ export default function CrawlerPanel() {
   async function exportCsv() {
     setBusy(true);
     setError(null);
+    onLog?.("导出 CSV…");
     try {
       const res = await fetch(`${API_BASE}/api/crawler/export`, {
         method: "POST",
       });
       if (!res.ok) throw await readError(res);
-      setExported((await res.json()) as { path: string; rows: number });
+      const data = (await res.json()) as { path: string; rows: number };
+      setExported(data);
+      onLog?.(`已导出 ${data.path}（${data.rows} 行）`, "ok");
     } catch (e) {
-      setError(errText(e));
+      const msg = errText(e);
+      setError(msg);
+      onLog?.(`导出失败：${msg}`, "error");
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Section
-      step="⑥"
-      title="岗位爬虫面板"
-      desc="抓取招聘 JD 并入库；URL 留空即使用默认演示站点"
+    <Collapsible
+      defaultOpen
+      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-5"
+      header={
+        <div>
+          <h3 className="flex flex-wrap items-center gap-2 text-base font-semibold text-[var(--text-primary)]">
+            <span className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-md bg-[var(--accent-sky-bg)] px-1.5 text-xs font-bold text-[var(--accent-sky)]">
+              ⑥
+            </span>
+            岗位爬虫面板
+          </h3>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--text-muted)]">
+            抓取招聘 JD 并入库；URL 留空即使用默认演示站点
+          </p>
+        </div>
+      }
     >
       <div className="flex flex-wrap items-center gap-3">
         <input
@@ -153,6 +182,6 @@ export default function CrawlerPanel() {
           ))}
         </ul>
       )}
-    </Section>
+    </Collapsible>
   );
 }
