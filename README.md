@@ -4,6 +4,18 @@
 
 上传一份 CSV，用中文提问，Agent 自动分析数据、生成 SQL、执行、校验并画图；上传简历 + 勾选岗位，resume∥job **并行**的多智能体工作流输出匹配评分与技能缺口。全过程通过 SSE 实时推送执行时间线（含 plan/并行/retry 事件）。所有数据走 DuckDB 内存查询，20 万行以内即席分析轻松应对。
 
+## 界面预览
+
+MiMo 风格 App Shell：可折叠侧栏（数据集 / 数据分析 / 简历匹配 / 岗位爬虫）+ 深蓝 / 浅色暖黄双主题。
+
+| 深蓝紧凑布局 | 浅色暖黄 |
+|---|---|
+| ![深蓝主题](docs/screenshots/ui-navy-compact.png) | ![暖黄主题](docs/screenshots/ui-amber-light.png) |
+
+| 简历匹配（右侧日志） | 岗位爬虫（右侧日志） |
+|---|---|
+| ![简历匹配](docs/screenshots/ui-match-log.png) | ![岗位爬虫](docs/screenshots/ui-crawler-log.png) |
+
 ## V3.0 变更
 
 | 变更 | 说明 |
@@ -15,7 +27,7 @@
 | **新增动态规划** | 按查询复杂度（SIMPLE/NORMAL/COMPLEX）自适应生成执行链路 |
 | **新增复杂度评估** | 单聚合词→SIMPLE（跳过 validator）；对比/嵌套/多表→COMPLEX（增强校验） |
 | **新增评测接口** | `GET /api/evaluations/last` 只读评测报告 |
-| **界面全面优化** | 响应式布局、暗色主题、动画过渡、组件拆分（详见设计文档） |
+| **界面全面优化** | MiMo App Shell、四视图、可折叠板块、双主题、右侧日志 |
 
 **核心原则**：
 - Multi-Agent 是核心能力

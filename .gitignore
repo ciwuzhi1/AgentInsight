@@ -21,3 +21,10 @@ data/
 .vscode/
 Thumbs.db
 .DS_Store
+
+# 临时截图 / 测试产物（README 用图放 docs/screenshots/）
+/*.png
+/frontend/*.png
+!docs/screenshots/*.png
+.playwright-mcp/
+.test_token

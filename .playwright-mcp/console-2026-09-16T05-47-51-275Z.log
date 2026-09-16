@@ -1,6 +1,0 @@
-[     493ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/compiled/react-dom/cjs/react-dom-client.development.js:24650
-[   28556ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8100/health:0
-[   41403ms] [LOG] [Fast Refresh] rebuilding @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/react-dev-overlay/app/hot-reloader-client.js:240
-[   42256ms] [LOG] [Fast Refresh] done in 853ms @ webpack-internal:///(app-pages-browser)/./node_modules/next/dist/client/components/react-dev-overlay/app/hot-reloader-client.js:67
-[   45091ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://127.0.0.1:8100/api/auth/login:0
-[   87526ms] [ERROR] Failed to load resource: the server responded with a status of 422 (Unprocessable Entity) @ http://127.0.0.1:8100/api/resumes:0

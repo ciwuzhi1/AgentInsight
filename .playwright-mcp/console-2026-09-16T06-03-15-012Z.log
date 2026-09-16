@@ -1,7 +1,0 @@
-[    8084ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3100/_next/static/css/app/layout.css?v=1789538603068:0
-[    8142ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3100/_next/static/chunks/webpack.js?v=1789538603068:0
-[    8142ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3100/_next/static/chunks/main-app.js?v=1789538603068:0
-[    8142ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3100/_next/static/chunks/app-pages-internals.js:0
-[    8142ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3100/_next/static/chunks/app/layout.js:0
-[    8142ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3100/_next/static/chunks/app/page.js:0
-[    8150ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3100/favicon.ico:0
