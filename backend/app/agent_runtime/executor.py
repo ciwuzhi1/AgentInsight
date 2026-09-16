@@ -12,7 +12,7 @@ from app.agent_runtime.message import make_message
 from app.agent_runtime.planner import PlanError, PlanStep, validate_dag
 from app.agent_runtime.registry import AgentRegistry, registry
 from app.agent_runtime.state import TaskState, TaskStatus
-from app.agents.base import EmitFn
+from app.agents.base import AgentResult, EmitFn
 from app.core.config import settings
 from app.core.logging import get_logger
 
@@ -97,7 +97,7 @@ class WorkflowExecutor:
                 {
                     "type": "step_skipped",
                     "step": step.id,
-                    "reason": "upstream step skipped",
+                    "reason": "上游步骤已跳过",
                 }
             )
             logger.info(
@@ -125,7 +125,7 @@ class WorkflowExecutor:
                     timeout=_STEP_TIMEOUT_S,
                 )
                 if result.status != "ok":
-                    error_msg = "; ".join(result.errors) or f"{name} returned error"
+                    error_msg = "; ".join(result.errors) or f"{name} 返回错误"
             except Exception as e:  # noqa: BLE001 - 统一进重试/失败分流
                 exc = e
                 error_msg = str(e)
@@ -181,7 +181,7 @@ class WorkflowExecutor:
         step: PlanStep,
         steps: list[PlanStep],
         done: dict[str, str],
-        result,
+        result: AgentResult,
         start: float,
     ) -> None:
         """成功收尾：结果落盘、AgentMessage 入列、agent_end 带 detail。"""

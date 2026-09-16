@@ -8,10 +8,6 @@ from __future__ import annotations
 
 import math
 
-from app.core.logging import get_logger
-
-logger = get_logger(__name__)
-
 
 def _rate(hits: int, total: int) -> float:
     """命中率，总量为 0 时返回 0.0。"""

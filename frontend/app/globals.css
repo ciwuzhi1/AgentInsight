@@ -2,11 +2,65 @@
 
 :root {
   color-scheme: dark;
+
+  /* 色彩系统（ui-redesign S2.2） */
+  --primary: #3b82f6;
+  --primary-light: #60a5fa;
+  --primary-dark: #2563eb;
+  --bg-base: #0f172a;
+  --bg-glass: rgba(30, 41, 59, 0.7);
+  --bg-card: rgba(30, 41, 59, 0.5);
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --border-glass: rgba(148, 163, 184, 0.1);
+  --bg-glass-strong: rgba(30, 41, 59, 0.85);
+
+  /* surfaces（TimelineCard / ResultCard / ChartBox） */
+  --bg-page: #020617;
+  --bg-panel: rgba(15, 23, 42, 0.4);
+  --bg-inset: rgba(30, 41, 59, 0.4);
+  --bg-code: #020617;
+  --bg-header: rgba(30, 41, 59, 0.8);
+
+  /* borders */
+  --border-default: #1e293b;
+  --border-subtle: rgba(30, 41, 59, 0.7);
+  --border-strong: #334155;
+
+  /* text */
+  --text-muted: #64748b;
+  --text-faint: #475569;
+
+  /* status */
+  --status-ok: #34d399;
+  --status-ok-bg: rgba(52, 211, 153, 0.1);
+  --status-ok-border: rgba(52, 211, 153, 0.3);
+  --status-error: #f87171;
+  --status-error-bg: rgba(248, 113, 113, 0.1);
+  --status-error-border: rgba(248, 113, 113, 0.4);
+  --status-running: #fbbf24;
+  --status-running-bg: rgba(251, 191, 36, 0.1);
+  --status-running-border: rgba(251, 191, 36, 0.4);
+  --status-pending: #94a3b8;
+  --status-skipped: #64748b;
+
+  /* accents */
+  --accent-sky: #38bdf8;
+  --accent-sky-bg: rgba(56, 189, 248, 0.1);
+  --accent-sky-border: rgba(56, 189, 248, 0.4);
+  --accent-violet: #a78bfa;
+  --accent-emerald: #34d399;
+  --accent-amber: #fbbf24;
+  --accent-red: #f87171;
+
+  /* chart */
+  --chart-axis-label: #94a3b8;
+  --chart-track: #1e293b;
 }
 
 body {
   background-color: #020617; /* slate-950 */
-  color: #f1f5f9; /* slate-100 */
+  color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -14,4 +68,125 @@ body {
 * {
   scrollbar-width: thin;
   scrollbar-color: #334155 transparent;
+}
+
+/* 毛玻璃面板（ui-redesign S2.6） */
+.glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+}
+
+/* 加强版毛玻璃：输入栏等需要更高对比度的区域 */
+.glass-strong {
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass);
+  border-radius: 16px;
+}
+
+/* 侧栏折叠：宽度过渡 + 内容淡入淡出（S2.5） */
+.sidebar-shell {
+  transition: width 0.2s ease;
+}
+
+.sidebar-body {
+  animation: slideInOut 0.2s ease;
+}
+
+@keyframes slideInOut {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 消息进入（供后续 ChatArea 使用） */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.3s ease;
+}
+
+/* 加载中脉冲 */
+@keyframes glassPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.animate-glass-pulse {
+  animation: glassPulse 1.4s ease-in-out infinite;
+}
+
+/* 按钮悬停：亮度提升 + 轻微放大 */
+.btn-glow {
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+.btn-glow:hover {
+  filter: brightness(1.12);
+  transform: scale(1.03);
+}
+
+/* 主按钮：实心蓝底 */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 500;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-light);
+}
+.btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 次按钮：透明底 + 细边框 */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.btn-ghost:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+.btn-ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

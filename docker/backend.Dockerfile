@@ -1,4 +1,4 @@
-# 后端镜像：FastAPI + Agent Runtime（P6 部署）
+# AgentInsight V3.0 — 后端镜像：FastAPI + Agent Runtime（DuckDB 单引擎）
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -11,7 +11,6 @@ COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/app ./app
-COPY spark ./spark
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8000

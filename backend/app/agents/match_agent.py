@@ -11,11 +11,11 @@ job_profile），找不到时兜底读 state.results。
 from __future__ import annotations
 
 import re
-import time
 
 from app.agents.base import AgentResult, BaseAgent, EmitFn, get_setting_safe
 from app.agents.match_algo import combined_skill_score
 from app.agent_runtime.state import TaskState
+from app.context.builder import build_match_context
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -217,9 +217,12 @@ def _template_interpretation(score: int, dimensions: dict, skill_gap: list[str])
 
 
 async def _llm_interpretation(
-    profile: dict, score: int, dimensions: dict, skill_gap: list[str]
+    profile: dict, jobs: list[dict], score: int, dimensions: dict, skill_gap: list[str]
 ) -> str | None:
-    """真模型解读；开关关闭/mock/异常返回 None（回模板）。"""
+    """真模型解读；开关关闭/mock/异常返回 None（回模板）。
+
+    使用 build_match_context 压缩简历+岗位上下文，降低 token 消耗。
+    """
     if await get_setting_safe("match_llm_enabled", "true") != "true":
         return None
     try:
@@ -228,10 +231,10 @@ async def _llm_interpretation(
         client = get_llm_client()
         if getattr(client, "is_mock", isinstance(client, MockLLMClient)):
             return None
+        # Context Engineering：压缩简历+岗位上下文，减少 prompt token
+        context = build_match_context(profile, jobs)
         summary = (
-            f"简历摘要: 技能 {profile.get('skills') or []}，"
-            f"学历 {profile.get('education') or '未知'}，"
-            f"年限 {profile.get('experience_years') or 0} 年。\n"
+            f"{context}\n"
             f"匹配分数: {score}，分项 {dimensions}，技能缺口 {skill_gap[:8]}。"
         )
         raw = await client.generate_json(MATCH_INTERPRET_SYSTEM_PROMPT, summary)
@@ -266,7 +269,7 @@ class MatchAgent(BaseAgent):
         skill_gap = scored["skill_gap"]
 
         # 2. LLM 解读（开关 + 真模型；否则模板）
-        interp = await _llm_interpretation(profile, score, dimensions, skill_gap)
+        interp = await _llm_interpretation(profile, jobs, score, dimensions, skill_gap)
         if interp:
             interpretation, interp_source = interp, "llm"
         else:

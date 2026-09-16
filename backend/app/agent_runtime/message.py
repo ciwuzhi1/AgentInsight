@@ -13,7 +13,7 @@ class AgentMessage:
     message_id: str      # uuid4
     task_id: str
     sender: str          # agent 名，supervisor 用 "supervisor"
-    receiver: str        # "runtime" 或下一 agent 名
+    receiver: str | list[str]  # "runtime" 或下一 agent 名（可为列表）
     type: str            # 如 "data_result" / "validation_result" / "error"
     payload: dict
     created_at: str
@@ -22,7 +22,7 @@ class AgentMessage:
 def make_message(
     task_id: str,
     sender: str,
-    receiver: str,
+    receiver: str | list[str],
     type: str,
     payload: dict,
 ) -> AgentMessage:

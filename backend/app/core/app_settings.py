@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 # 内置默认表（与 schema.sql 内置行一致）：key -> (默认值, 是否 secret)
 _DEFAULTS: dict[str, tuple[str, bool]] = {
     "match_llm_enabled": ("true", False),
+    "report_llm_enabled": ("false", False),
     "llm_fallback_mock": ("auto", False),
     "parser_backend": ("mineru_api", False),
     "sql_timeout": ("30", False),

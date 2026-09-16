@@ -61,7 +61,7 @@ class TaskState:
         allowed = _TRANSITIONS[self.status]
         if to not in allowed:
             raise ValueError(
-                f"illegal transition: {self.status.value} -> {to.value}"
+                f"非法状态迁移: {self.status.value} -> {to.value}"
             )
         self.status = to
         self.updated_at = datetime.now().isoformat()

@@ -67,7 +67,7 @@ app = FastAPI(title="AgentInsight", lifespan=lifespan)
 _CORS_ORIGINS = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 if not _CORS_ORIGINS:
     logger.error("CORS_ORIGINS 未配置，已拒绝启动。请在 .env 中设置 CORS_ORIGINS=http://localhost:3100")
-    raise RuntimeError("CORS_ORIGINS must not be empty in production")
+    raise RuntimeError("CORS_ORIGINS 不得为空，请在 .env 中配置白名单来源")
 
 app.add_middleware(
     CORSMiddleware,
@@ -121,6 +121,7 @@ app.include_router(auth.router)
 from app.api import crawler  # CODE-7 并行产出， noqa: E402
 
 app.include_router(crawler.router)
+app.include_router(crawler.jobs_router)
 
 # 阶段2 增量（CONTRACTS2 §4.6）：简历 / 匹配 / 模型配置 / 设置中心
 from app.api import matches, models as models_api, resumes, settings as settings_api  # noqa: E402

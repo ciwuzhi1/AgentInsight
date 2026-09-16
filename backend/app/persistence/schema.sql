@@ -125,6 +125,8 @@ CREATE TABLE IF NOT EXISTS users (
 INSERT IGNORE INTO app_settings (`key`, value, is_secret) VALUES
   ('match_llm_enabled', 'true', 0);
 INSERT IGNORE INTO app_settings (`key`, value, is_secret) VALUES
+  ('report_llm_enabled', 'false', 0);
+INSERT IGNORE INTO app_settings (`key`, value, is_secret) VALUES
   ('llm_fallback_mock', 'auto', 0);
 INSERT IGNORE INTO app_settings (`key`, value, is_secret) VALUES
   ('parser_backend', 'mineru_api', 0);

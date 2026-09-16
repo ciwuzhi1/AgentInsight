@@ -18,6 +18,7 @@ from app.agent_runtime.state import TaskState
 from app.cache.keys import job_key, text_hash
 from app.cache.policies import TTL_JOB
 from app.cache.redis import get_json, set_json
+from app.context.compressor import compress_job
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -177,6 +178,13 @@ class JobAgent(BaseAgent):
             # 写缓存（失败静默，不影响主链路）
             await set_json(key, {"jobs": profiled, "level": level, "source": source}, TTL_JOB)
 
-        data = {"jobs": profiled, "level": level, "source": source, "cache": cache_state}
+        # Context Engineering：压缩岗位画像后写入 results，降低下游 token 消耗
+        # compress_job 只保留内容字段；id/company 为结构标识，需保留供下游组装
+        compressed_jobs = [
+            {**compress_job(j), "id": j.get("id"), "company": j.get("company") or ""}
+            for j in profiled
+        ]
+
+        data = {"jobs": compressed_jobs, "level": level, "source": source, "cache": cache_state}
         state.results["job_agent"] = data
         return AgentResult(status="ok", message_type="job_profile", data=data)

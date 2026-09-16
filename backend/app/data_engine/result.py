@@ -5,10 +5,12 @@ from dataclasses import dataclass
 
 @dataclass
 class EngineResult:
+    """引擎执行结果：列名、截断后的行、行数与耗时。"""
+
     columns: list[str]
     rows: list[list]          # 已截断
     row_count: int            # 截断后行数
     total_rows: int | None    # 未截断前总数，未知为 None
     truncated: bool
     elapsed_ms: int
-    engine: str               # "duckdb" | "spark"
+    engine: str               # "duckdb"

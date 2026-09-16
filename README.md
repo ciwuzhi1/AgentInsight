@@ -1,46 +1,27 @@
 # AgentInsight — 会看数据的 AI Agent（Multi-Agent 数据分析 + 简历岗位匹配）
 
-> **当前状态（2026-03-11）**：实用级优化完成——18 项全量优化落地（紧急 Bug 修复 / 安全加固 / 连接缓存优化 / 健壮性提升 / 前端体验）。77 单测全绿 + TypeScript 通过。
+> **当前状态（2026-03-12）**：V3.0 发布——移除 Spark 依赖，专注 DuckDB 单机分析；新增 Context Engineering（Token 预算控制 + 上下文压缩）、Report Synthesizer（模板化汇总 + 可选 LLM 润色）、Few-shot 检索、动态复杂度规划。
 
-上传一份 CSV，用中文提问，Agent 自动选引擎（DuckDB / Spark）、生成 SQL、执行、校验并画图；上传简历 + 勾选岗位，resume∥job **并行**的多智能体工作流输出匹配评分与技能缺口。全过程通过 SSE 实时推送执行时间线（含 plan/并行/retry 事件）。20 万行以内的 CSV 走 DuckDB 即席查询，超过阈值自动路由到容器里的 Spark 作业。
+上传一份 CSV，用中文提问，Agent 自动分析数据、生成 SQL、执行、校验并画图；上传简历 + 勾选岗位，resume∥job **并行**的多智能体工作流输出匹配评分与技能缺口。全过程通过 SSE 实时推送执行时间线（含 plan/并行/retry 事件）。所有数据走 DuckDB 内存查询，20 万行以内即席分析轻松应对。
 
-## 全量优化（2026-03-11）
+## V3.0 变更
 
-### 紧急修复
-- **auth register NameError**：`username` 变量赋值顺序错误，注册接口完全不可用
-- **failed_final 误标**：executor 重试中的 error 事件被提前标记为终态失败
+| 变更 | 说明 |
+|------|------|
+| **移除 Spark** | 专注 DuckDB 单机分析，降低部署复杂度（无需 Docker/Spark 镜像） |
+| **新增 Context Engineering** | Token 预算控制（4000/1000/8000）+ 上下文压缩（简历/JD/Schema/结果） |
+| **新增 Report Synthesizer** | 模板化汇总报告 + 可选 LLM 润色（`report_llm_enabled` 开关） |
+| **新增 Few-shot 检索** | 历史成功 SQL 作为 LLM 示例，TF-IDF 相似度检索 top-3 |
+| **新增动态规划** | 按查询复杂度（SIMPLE/NORMAL/COMPLEX）自适应生成执行链路 |
+| **新增复杂度评估** | 单聚合词→SIMPLE（跳过 validator）；对比/嵌套/多表→COMPLEX（增强校验） |
+| **新增评测接口** | `GET /api/evaluations/last` 只读评测报告 |
+| **界面全面优化** | 响应式布局、暗色主题、动画过渡、组件拆分（详见设计文档） |
 
-### 安全加固
-- Settings / Models / Evaluation API 添加鉴权（之前无认证即可读写 LLM 密钥）
-- CORS 空值时拒绝启动（不再回退通配符 `*`）
-- APP_SECRET 缺失时 fail hard（不再生成临时密钥导致 JWT 失效）
-
-### 连接与缓存优化
-- **Redis 单例**：进程内共享连接，避免每次操作新建 TCP + ping（冷却期 5s 防雪崩）
-- **DuckDB LRU**：最多保留 10 个连接，淘汰最久未用的并 close
-- **LLM Client 缓存**：按 `(base_url, model)` 缓存实例，复用 HTTP 连接池
-- **NL2SQL 缓存**：相同 `(dataset, schema, query)` 复用 SQL，TTL 1h
-- **NL2SQL 错误反馈重试**：SQL 执行失败时把错误喂回 LLM 重新生成（最多 2 次）
-
-### 健壮性
-- 阻塞 MySQL 调用 async 化（`get_setting_async`）
-- 启动时清理残留幂等锁（重启后不再 409）
-- SSE 终态判定：只有 `terminal: true` 的 error 才结束事件流
-
-### 前端体验
-- ECharts 按需引入（bundle 减少 ~70%）
-- SSE 指数退避重连（最多 3 次）
-- 错误重点报错：重试中黄色警告、终态红色醒目
-- `useMemo` 优化时间线渲染
-
-## 阶段2 新增（Multi-Agent 链路 B）
-
-- **WorkflowExecutor**：PlanStep DAG（`resume∥job → match → validator`）拓扑波次执行，波内 `asyncio.gather` 并行；单步指数退避重试（0.5/1/2s），可选步骤失败自动跳过（Replan）；`MAX_AGENT_STEPS` 强制生效。
-- **AgentMessage 实用化**：每个 AgentResult 包装为结构化消息存入 `state.messages` 并落库 task_steps.detail，MatchAgent 只从消息取上游 profile——Agent 间协作不传裸字符串。
-- **ResumeAgent**：PDF 优先走 MinerU 官方 API（token 在设置中心配置，未配置/失败自动降级 PyMuPDF 本地文本层），DOCX/TXT 直读；LLM 结构化简历画像，无 key 正则兜底。
-- **MatchAgent**：纯规则打分（技能 0.5 + 项目 0.2 + 经验 0.1 + 学历 0.1 + 工程 0.1，12 组同义词归一）输出总分/五维分项/技能缺口；`match_llm_enabled` 开启且激活了真模型时追加 LLM 解读（否则模板文案并标注来源）。
-- **统一设置中心**：模型多配置热切换（Fernet 加密、连通测试、激活即时生效不重启）+ 功能开关（`match_llm_enabled` / `llm_fallback_mock` / `parser_backend` / `sql_timeout` / 密钥类），全部即时生效。
-- **健壮性**：TaskBus 事件上限 500 + 完结任务 30min TTL 清扫、上传 ≤10MB（413）、DuckDB memory_limit 1GB + 查询 30s 超时、MySQL 连接超时+瞬时重试、LLM 指数退避、全局异常处理 + 请求日志。
+**核心原则**：
+- Multi-Agent 是核心能力
+- Redis 是运行时增强（挂了自动降级）
+- DuckDB 是唯一数据执行引擎
+- 界面是用户体验载体
 
 ## 框架决策对照（为什么不用 LangGraph / DeepAgents）
 
@@ -66,21 +47,26 @@
                     │  │  API 层     │  │  Agent Runtime             │  │
                     │  │ datasets   │──▶ Supervisor.route/run_task   │  │
                     │  │ tasks(SSE) │  │  TaskState 状态机 + Registry │  │
-                    │  │ crawler    │  └──────┬──────────┬──────────┘  │
-                    │  │ health     │         │          │             │
-                    │  └─────┬──────┘  ┌──────▼─────┐ ┌──▼──────────┐  │
-                    │        │         │ data_agent │ │validator_   │  │
-                    │        │         │ NL2SQL+路由 │ │agent 结果校验│  │
-                    │        │         └──┬──────┬──┘ └─────────────┘  │
-                    │        │   profiler │      │ sql_tool.guard      │
-                    │        │   router   │      │ MockLLM/OpenAI 兼容 │
-                    │  ┌─────▼──────┐  ┌──▼───────────┐ ┌────────────┐ │
-                    │  │ 爬虫(可选)  │  │ DuckDB 内存查询│ │ Spark 容器  │ │
-                    │  └─────┬──────┘  └──────────────┘ │ docker run  │ │
-                    │        │                          │ --rm 按需起  │ │
-                    │  ┌─────▼──────────────────────────▼──────────┐  │
-                    │  │   MySQL 8.0（数据集/任务/步骤/JD 落库）      │  │
-                    │  └───────────────────────────────────────────┘  │
+                    │  │ resumes    │  │  Planner (动态复杂度)         │  │
+                    │  │ matches    │  └──────┬──────────┬──────────┘  │
+                    │  │ settings   │         │          │             │
+                    │  │ models     │  ┌──────▼─────┐ ┌──▼──────────┐  │
+                    │  │ health     │  │ data_agent │ │validator_   │  │
+                    │  └─────┬──────┘  │ NL2SQL+Few-shot│agent 结果校验│ │
+                    │        │         │ SQL Guard  │ └─────────────┘  │
+                    │        │         │ DuckDB     │                   │
+                    │        │         └──┬─────────┘                   │
+                    │        │  ┌─────────▼──────────┐                 │
+                    │        │  │ Report Synthesizer │                 │
+                    │        │  │ (模板汇总+LLM润色)  │                 │
+                    │        │  └────────────────────┘                 │
+                    │  ┌─────▼──────────────────────────────────┐      │
+                    │  │ Context Engineering                    │      │
+                    │  │ TokenBudget + Compressor + Builder     │      │
+                    │  └────────────────────────────────────────┘      │
+                    │  ┌──────────────────────────────────────────┐    │
+                    │  │   MySQL 8.0（数据集/任务/步骤/JD 落库）    │    │
+                    │  └──────────────────────────────────────────┘    │
                     │   Redis（Docker，SSE 缓存，可选，挂了自动降级）     │
                     └──────────────────────────────────────────────────┘
 ```
@@ -95,16 +81,17 @@
 | Python | 3.12.8（全局安装，无 venv） | 依赖装进全局 |
 | MySQL | 8.0.26（本机 Windows 服务 MySQL80，端口 3306） | 存数据集/任务/步骤/爬虫 JD |
 | Node.js | 24 | 跑 Next.js 前端 |
-| Docker Desktop | 29.2.1 | 起 Redis；Spark 由后端按需 `docker run --rm` 调起 |
-| Spark 镜像 | apache/spark:3.5.1 | 首次触发 Spark 链路时自动拉取 |
+| Docker Desktop | 29.2.1 | 可选：起 Redis；不装 Docker 也能跑 |
 | Redis 镜像 | redis:7-alpine | 可选 |
+
+> **V3.0 无需 Spark**：已移除 Spark 依赖与相关配置（`SPARK_ROW_THRESHOLD`/`SPARK_IMAGE` 等）。
 
 Python 依赖见 `backend/requirements.txt`；前端依赖见 `frontend/package.json`。
 
 ## 五步启动
 
 ```bash
-# ① 生成 demo 数据：1 万行销售明细 + 20 万行 JD
+# ① 生成 demo 数据：1 万行销售明细
 python scripts/gen_data.py
 
 # ② 复制 .env.example 为 .env，填好 MySQL 密码后初始化库表与账号
@@ -115,7 +102,7 @@ docker compose up -d
 
 # ④ 起后端（在 backend 目录下）
 cd backend
-python -m uvicorn app.main:app --port 8000
+python -m uvicorn app.main:app --port 8100
 
 # ⑤ 起前端（新开终端，在 frontend 目录下）
 cd frontend
@@ -125,93 +112,70 @@ npm run dev
 
 浏览器打开 http://localhost:3100 即可使用。
 
-LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI 兼容接口均可）；没有 key 时把 `LLM_PROVIDER=mock`（或留空 key），内置规则版 NL2SQL 也能跑通全链路。
+LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI 兼容接口均可）；没有 key 时把 `LLM_PROVIDER=mock`（或留空 key），内置规则版 NL2SQL 也能跑通全链路。也可在前端 `/settings` 页面添加模型配置，支持多模型热切换。
 
-## 三条 Demo
+## 两条 Demo
 
-### 链路 A：DuckDB 即席查询（小文件）
+### 链路 A：数据分析（DuckDB）
 
 1. 首页上传 `data/demo/demo_sales.csv`（1 万行销售明细）。
 2. 在提问框输入：**按地区统计总销售额**（或点示例按钮）。
-3. 观察 Agent 时间线：`data_agent` 画像文件 → 行数低于 10 万阈值 → 选择 **DuckDB** → 生成 SQL → 执行 → `validator_agent` 校验 → 结果卡片显示 SQL、柱状图与结果表。
+3. 观察 Agent 时间线：`data_agent` → 复杂度评估（NORMAL）→ Few-shot 检索 → 生成 SQL → SQL Guard → DuckDB 执行 → `validator_agent` 校验 → `report_synthesizer` → 结果卡片显示 SQL、柱状图与结果表。
 
-### 链路 D：Spark 路由（大文件自动分流）
+### 链路 B：简历匹配（Multi-Agent 并行）
 
-1. 上传 `data/large/jd_large.csv`（20 万行合成 JD，超过 10 万行阈值）。
-2. 提问：**JD 中需求最多的技能 Top 10**。
-3. 时间线出现 `engine: spark` 事件，后端按需 `docker run --rm apache/spark:3.5.1 spark-submit ...` 执行 `spark/jobs/jd_skill_stats.py`，对 skills 列做 explode + groupBy 计数，结果回填为图表。首次运行需拉镜像并启动 JVM，约 1–2 分钟属正常。
+1. 上传简历（PDF/DOCX/TXT）。
+2. 从岗位列表勾选 1~N 个岗位。
+3. 点击"开始匹配"，观察时间线：`resume ∥ job` 并行执行 → `match_agent` 五维打分 → `validator_agent` 校验 → `report_synthesizer` 报告 → 结果展示分数环/分项条/技能缺口标签。
 
-### 爬虫 → 导出 CSV
+## Benchmark
 
-1. 前端爬虫面板（或 `POST /api/crawler/run`，body 留空即抓默认假招聘页）抓取岗位数据入库。
-2. 点「导出 CSV」（或 `POST /api/crawler/export`），生成 `data/large/jd_crawled.csv`。
-3. 把这个 CSV 当数据集上传（行数够大即触发 Spark），或直接重新提问做技能统计——与链路 D 同一条 Spark 作业。
+> **V3.0 待实测**。以下为 V2.x 参考基线（移除 Spark 后 DuckDB 链路应保持同等或更优性能）。
 
-## Benchmark（实测于本机 2026-08-30，Windows 11 / Python 3.12 / DuckDB 1.5.5）
-
-| 场景 | 数据规模 | 引擎 | 端到端耗时 | 峰值内存 |
+| 场景 | 数据规模 | 引擎 | 端到端耗时 | 备注 |
 |---|---|---|---|---|
-| 按地区统计总销售额（含路由/校验全链路） | 1 万行 CSV | DuckDB | **82 ms**（task elapsed） | 待实测 |
-| 技能 Top 10（视图注册 / 查询分列） | 20 万行 CSV | DuckDB | **注册 90 ms / 查询 105 ms** | memory_limit 1GB |
-| 技能 Top 18 | 20 万行 CSV（19.9 万行估计） | **Spark 容器 local[*]** | **9.5s**（docker run 含 JVM 启动；作业内部 6.1s） | driver 1g |
-| 爬虫抓取 1 页（10 条含详情页 + 入库） | 10 条 | - | **17.7 s**（礼貌性 0.5s/请求 + 逐条抓详情页） | - |
-| LLM 生成 SQL | - | mock 规则 0 ms（本地正则） | DeepSeek/GLM 待填 key 实测 | - |
+| 按地区统计总销售额（全链路） | 1 万行 CSV | DuckDB | 待实测 | 含 NL2SQL+执行+校验+报告 |
+| 技能 Top 10 | 20 万行 CSV | DuckDB | 待实测 | memory_limit 1GB |
+| 匹配链路（resume∥job 并行） | - | - | 待实测 | 含 LLM 结构化+打分+报告 |
+| SSE 首事件延迟 | - | - | 待实测 | 用户"立刻看到 Agent 动起来" |
 
-> 测量口径：DuckDB 两行来自 `scripts/bench_duckdb.py` 与链路 A SSE final 事件的 elapsed_ms；爬虫为 `time curl` 墙钟。所有数字为真实运行结果，未预填。
-
-**双引擎结果一致性（P5 实测）**：同一 20 万行 JD 数据、同一聚合语义，DuckDB 与 Spark 输出完全一致（git 50518 / react 50444 / fastapi 50209…）；小数据 DuckDB 快 ~90 倍（无容器/JVM 开销），Spark 的价值在大规模批处理与水平扩展叙事——这正是 AnalysisRouter 按行数路由的意义。链路 D 一键复现：`python scripts/chain_d_demo.py`。
-
-### 接口响应延迟（阶段2 实测，`python scripts/api_bench.py --n 10` 一键复现）
+### 接口响应延迟（V2.x 基线，`python scripts/api_bench.py --n 10`）
 
 | 层 | 用例 | n | 中位 | P95 |
 |---|---|---|---|---|
 | L1 可用性 | GET /api/health | 10 | 14.1ms | 23.7ms |
 | L1 可用性 | GET /api/health/mysql | 10 | 52.3ms | 78.5ms |
-| L1 可用性 | GET /api/health/redis | 10 | 15.0ms | 110.2ms |
 | L2 读接口 | GET /api/settings | 10 | 46.9ms | 80.3ms |
-| L2 读接口 | GET /api/models | 10 | 59.9ms | 76.4ms |
-| L2 读接口 | GET /api/crawler/jobs | 10 | 60.9ms | 79.0ms |
 | L3 写与链路 | POST /api/datasets（1 万行 CSV） | 5 | 118.1ms | 142.7ms |
 | L3 写与链路 | 数据链路 SSE 首事件 | 5 | **25.0ms** | 31.9ms |
-| L3 写与链路 | 数据链路 SSE final（端到端，含 NL2SQL+DuckDB+Validator） | 5 | **296.3ms** | 428.4ms |
-| L3 写与链路 | 匹配链路 SSE 首事件 | 5 | 20.4ms | 26.3ms |
-| L3 写与链路 | 匹配链路 SSE final（端到端，resume∥job 并行） | 5 | **358.2ms** | 409.1ms |
-| L4 健壮性 | 11MB 上传 → 413 拒绝 | 1 | 100.1ms | - |
-| L4 健壮性 | DROP 注入 → SQL Guard 拒绝，无结果落库 | 1 | 通过 | - |
-| L4 健壮性 | sql_timeout 热配置往返（PUT 2 → 读回 2 → 还原） | 1 | 通过 | - |
-| L4 健壮性 | 慢 SQL 强制超时（默认 30s）：20 亿行聚合被中断，返回 `EngineError("查询超时")` | 1 | 通过 | - |
+| L3 写与链路 | 数据链路 SSE final（端到端） | 5 | **296.3ms** | 428.4ms |
+| L3 写与链路 | 匹配链路 SSE final（端到端） | 5 | **358.2ms** | 409.1ms |
 
-> 慢 SQL 实测备注：DuckDB 对 5 亿行 `count(*)` 这类向量化快路径查询 0.3s 内即可完成（所以正常业务查询根本碰不到超时）；真正的重查询（20 亿行笛卡尔积聚合）在默认 30s 被强制中断。已知限制：超时通过 `asyncio.wait_for` 取消等待方，DuckDB 后台线程会继续跑完该查询（结果弃用），期间仍占用 CPU——MVP 可接受，后续可换 `conn.interrupt()` 实现 hair-cut 中断。
+### 评测 100 case（`python -m app.evaluation.runner`）
 
-## 实用阶段实测（P1 真实智能 / P2 Redis 链路C / P3 评测 / P4 auth 后端）
-
-### 评测 100 case（`python -m app.evaluation.runner`，mock 基线 vs GLM-4.5-air 实测）
-
-| 指标 | mock 基线 | GLM-4.5-air 真实 |
+| 指标 | mock 基线 | GLM-4.5-air |
 |---|---|---|
-| NL2SQL 执行成功率（60 case） | 96.67% | **95.00%** |
-| NL2SQL 结构通过率（列/聚合/排序断言） | 61.67% | **63.33%** |
-| JSON 合法率 | 100% | 98.33% |
-| 匹配分数区间/缺口准确率（20 case） | 100% / 100% | **100% / 100%** |
+| NL2SQL 执行成功率（60 case） | 96.67% | 95.00% |
+| NL2SQL 结构通过率 | 61.67% | 63.33% |
+| 匹配分数/缺口准确率（20 case） | 100% / 100% | 100% / 100% |
 | 路由准确率（10 case） | 100% | 100% |
-| 异常 graceful 率（10 case） | 100%（修复 clarify 迁移 bug 后） | 90%（1 例 LLM 超时波动） |
-| NL2SQL 平均延迟 | 52ms | 14.6s（真网络调用） |
+| 异常 graceful 率（10 case） | 100% | 90% |
 
-### 链路C Redis 缓存（同一简历 + 同 2 个 JD 连跑两次，真实 GLM）
+## 链路C Redis 缓存（同一简历 + 同 2 个 JD 连跑两次）
 
 | 运行 | 端到端 | cache 事件 | LLM/解析调用 |
 |---|---|---|---|
-| 第 1 次 | 21.3s | resume MISS + job MISS | 全量（GLM 结构化×2 + 打分解读） |
-| 第 2 次 | 8.8s（**2.4x 提速**） | resume **HIT** + job **HIT** | 0 次解析/结构化（仅打分解读） |
-| 运行中重复提交 | **409** + 原 task_id（前端「已接管进行中任务」） | - | - |
+| 第 1 次 | 21.3s | resume MISS + job MISS | 全量 |
+| 第 2 次 | 8.8s（**2.4x 提速**） | resume **HIT** + job **HIT** | 0 次解析/结构化 |
+| 运行中重复提交 | **409** + 原 task_id | - | - |
 
-### auth（P4 后端已生效，登录页待做——curl/脚本携带 Bearer token 即可）
+## auth（登录/注册/数据隔离）
 
-- 无 token 访问受保护接口 → 401；A 用户上传的简历/数据集，B 用户 GET → 404（不泄露存在性）
-- `POST /api/auth/register` → `POST /api/auth/login` 得 7 天 JWT → `Authorization: Bearer` 访问
+- 打开 `http://localhost:3100` 未登录自动跳 `/login`（注册/登录双模式，token 存 localStorage）
+- 全局 fetch 自动注入 `Authorization: Bearer`，401 自动跳回登录页
+- 无 token 访问受保护接口 → 401；A 用户资源，B 用户访问 → 404（不泄露存在性）
+- `POST /api/auth/register` → `POST /api/auth/login` 得 7 天 JWT
 - 存量数据（user_id=NULL）为公共遗留，登录用户均可见
-
-> 口径：本机 Windows 11 / Python 3.12 / mock 模式（LLM 走本地规则）。链路 final 含任务创建+全 Agent 执行+校验+组装的端到端墙钟。结论：SSE 首事件 ~25ms（用户"立刻看到 Agent 动起来"），两条链路端到端 <400ms。
 
 ## .env 变量说明
 
@@ -225,31 +189,37 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 | `MYSQL_ROOT_PASSWORD` | 仅 `scripts/init_db.py` 初始化时使用 | 空 |
 | `MYSQL_USER` / `MYSQL_PASSWORD` | 应用账号（init_db 会创建并授权） | agent_app / 空 |
 | `MYSQL_DATABASE` | 库名 | agentinsight |
-| `REDIS_URL` | Redis 连接串（Docker 里的 Redis） | redis://127.0.0.1:6379/0 |
+| `REDIS_URL` | Redis 连接串 | redis://127.0.0.1:6379/0 |
 | `MAX_AGENT_STEPS` | 单任务最大步数上限 | 8 |
-| `MAX_RETRY` | agent 单步失败重试次数，耗尽进 `failed_final` | 2 |
+| `MAX_RETRY` | agent 单步失败重试次数 | 2 |
 | `SQL_MAX_ROWS` | 结果行数上限；guard 自动补/改写 LIMIT | 1000 |
-| `SPARK_ROW_THRESHOLD` | 行数 ≥ 该值路由到 Spark | 100000 |
-| `SPARK_IMAGE` | spark-submit 用的镜像 | apache/spark:3.5.1 |
 | `DATA_DIR` / `UPLOAD_DIR` | 数据与上传目录 | `<repo>/data` 与 `<repo>/data/uploads` |
+| `APP_SECRET` | JWT 签名密钥；缺失时自动生成写回 .env | 自动生成 |
+
+> **V3.0 已移除**：`SPARK_ROW_THRESHOLD` / `SPARK_IMAGE` 等 Spark 相关变量。
 
 ## 常见问题
 
 **8GB 内存可行吗？**
-可行。MySQL、后端、前端都是轻量常驻；DuckDB 查询是流式内存计算，10 万行级 CSV 占用很小。最吃内存的是 Spark 容器，后端用 `--driver-memory 1g` 限制，且 `docker run --rm` 用完即销毁、不常驻。建议 Windows 给 Docker Desktop 分配 3–4GB 即可，其余留给系统。
+完全可行。V3.0 移除 Spark 后内存占用大幅降低。MySQL、后端、前端都是轻量常驻；DuckDB 查询是流式内存计算，10 万行级 CSV 占用很小。这是 V3.0 的核心优化之一——不再需要为 Spark 容器预留 3-4GB。
 
-**为什么 Spark 用容器而不是本机装 Spark？**
-三点：① 免安装——不用配 JDK/SCALA/HADOOP_HOME 一堆环境变量，有 Docker 就能跑；② 环境一致——镜像自带匹配的 Python 与 PySpark 版本，避免 Windows 本机 Spark 的各种兼容坑；③ 干净——`docker run --rm` 每次作业起一个容器、跑完即删，不占常驻资源，也方便以后换镜像版本做对比。
+**为什么 V3.0 移除 Spark？**
+三个原因：① 部署复杂度——Spark 需要 Docker + 镜像拉取 + JVM 启动，对 8GB 机器不友好；② 维护成本——双引擎路由增加代码复杂度，DuckDB 在 20 万行内表现已足够；③ 聚焦核心价值——项目核心是 Multi-Agent Runtime 和 Context Engineering，不是大数据处理引擎。
 
 **为什么不用 LangChain？**
-本项目核心是展示 Agent 的运行时机制：状态机、消息流、SSE 事件、重试与校验。自己写 Supervisor + Registry 只有几百行，每一步都可控、可测、可解释；套 LangChain 反而把编排黑盒化，调试和教学成本都更高。LLM 只用来做 NL2SQL 这一件事，一个 OpenAI 兼容客户端（约 40 行）足够。
+本项目核心是展示 Agent 的运行时机制：状态机、消息流、SSE 事件、重试与校验。自己写 Supervisor + Registry 只有几百行，每一步都可控、可测、可解释；套 LangChain 反而把编排黑盒化，调试和教学成本都更高。
 
 **Redis 挂了会怎样？**
 不影响主链路。Redis 只做辅助缓存，后端对 Redis 的所有调用都有降级处理：连不上时记 warning、`GET /api/health/redis` 返回 `{"redis":"degraded"}` 而非 500，任务照常执行。SSE 事件本体走进程内 TaskBus，不依赖 Redis。想彻底省资源可以不启动 Redis 容器。
 
+**如何启用 LLM 润色报告？**
+在设置中心 PUT `{"key": "report_llm_enabled", "value": "true"}`，或在 `/settings` 页面开启。默认使用模板化汇总（纯文本拼接，无 LLM 调用）。
+
 ## 更多文档
 
-- 系统设计与扩展指南（目录职责、数据流、五个扩展点）：见 [ARCHITECTURE.md](ARCHITECTURE.md)
+- API 接口参考：见 [docs/API.md](docs/API.md)
+- 系统设计与扩展指南：见 [ARCHITECTURE.md](ARCHITECTURE.md)
+- V3.0 完整开发设计文档：见 [docs/AgentInsight_V3.0_开发设计文档.md](docs/AgentInsight_V3.0_开发设计文档.md)
 - 前端实现讲解：见 [frontend/README.md](frontend/README.md)
 
 ## 企业级工程化（E1 硬化批次）
@@ -257,26 +227,8 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 | 维度 | 落地内容 |
 |---|---|
 | 可观测性 | **结构化 JSON 日志**（每行含 `request_id`/`task_id`，`X-Request-ID` 请求头透传）；K8s 风格探针 **`/healthz`**（存活）/**`/readyz`**（就绪：MySQL 必须 up，Redis 允许降级）；**`/metrics`**（请求总数/错误数/平均延迟） |
-| 安全 | 登录/注册限流 **5 次/分钟/IP+用户名**（429 + 等待秒数）；任务创建限流 **30 次/分钟/用户**；query 长度上限 2000（422）；依赖全量**精确锁版**（requirements.txt） |
-| 可靠性 | **版本化数据库迁移**（`app/persistence/migrations.py`，启动自动应用、幂等重放、`schema_migrations` 版本表）；**基线索引 v1**（user_id+created_at 等 6 项）；任务历史**分页**（page/has_more） |
-| 质量 | 77 单测全绿（新增限流/JSON日志/长度校验 5 例）；连接池化回归修复（health 探针与事务路径的池化适配） |
+| 安全 | 登录/注册限流 **5 次/分钟/IP+用户名**（429 + 等待秒数）；任务创建限流 **30 次/分钟/用户**；query 长度上限 2000（422）；依赖全量**精确锁版**（requirements.txt）；密钥 Fernet 加密落库 |
+| 可靠性 | **版本化数据库迁移**（`app/persistence/migrations.py`，启动自动应用、幂等重放、`schema_migrations` 版本表）；**基线索引 v1**；任务历史**分页**（page/has_more）；幂等锁防重复提交 |
+| 质量 | 77+ 单测全绿（全离线）；连接池化；TaskBus 事件上限 500 + TTL 清扫 |
 
 > 多实例演进路径：限流换 Redis ZSET、指标换 Prometheus client、日志接 ELK——接口已按此预留。
-
-## 企业级工程化（E1 硬化批次）
-
-| 维度 | 落地内容 |
-|---|---|
-| 可观测性 | **结构化 JSON 日志**（每行含 `request_id`/`task_id`，`X-Request-ID` 请求头透传）；K8s 风格探针 **`/healthz`**（存活）/**`/readyz`**（就绪：MySQL 必须 up，Redis 允许降级）；**`/metrics`**（请求总数/错误数/平均延迟） |
-| 安全 | 登录/注册限流 **5 次/分钟/IP+用户名**（429 + 等待秒数）；任务创建限流 **30 次/分钟/用户**；query 长度上限 2000（422）；依赖全量**精确锁版**（requirements.txt） |
-| 可靠性 | **版本化数据库迁移**（`app/persistence/migrations.py`，启动自动应用、幂等重放、`schema_migrations` 版本表）；**基线索引 v1**（user_id+created_at 等 6 项）；任务历史**分页**（page/has_more） |
-| 质量 | 77 单测全绿（新增限流/JSON日志/长度校验 5 例）；连接池化回归修复（health 探针与事务路径的池化适配） |
-
-> 多实例演进路径：限流换 Redis ZSET、指标换 Prometheus client、日志接 ELK——接口已按此预留。
-
-### 登录与前端（P4 前端已上线）
-
-- 打开 `http://localhost:3100` 未登录自动跳 `/login`（注册/登录双模式，token 存 localStorage）
-- 全局 fetch 自动注入 `Authorization: Bearer`，401 自动跳回登录页；SSE 走 `?token=` 查询参数（EventSource 限制）
-- 导航栏显示当前用户名 + 退出按钮；`/settings` 同样受登录保护
-- 浏览器端到端实测：注册→登录→UI 上传 CSV→自然语言提问（真 GLM 出 SQL）→简历匹配两次→第二次 **1.6s 双 HIT 徽标**

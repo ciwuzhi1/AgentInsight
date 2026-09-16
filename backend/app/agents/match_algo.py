@@ -15,10 +15,6 @@ from __future__ import annotations
 import math
 from collections import Counter
 
-from app.core.logging import get_logger
-
-logger = get_logger(__name__)
-
 
 def compute_tfidf_weights(
     all_jobs_skills: list[list[str]],

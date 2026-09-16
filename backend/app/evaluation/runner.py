@@ -56,10 +56,11 @@ def default_report_path() -> Path:
 
 
 def build_registry() -> AgentRegistry:
-    """构建评测专用 agent 注册表（含全部 5 个 agent）。"""
+    """构建评测专用 agent 注册表（含全部 agent）。"""
     from app.agents.data_agent import DataAgent
     from app.agents.job_agent import JobAgent
     from app.agents.match_agent import MatchAgent
+    from app.agents.report_agent import ReportSynthesizer
     from app.agents.resume_agent import ResumeAgent
     from app.agents.validator_agent import ValidatorAgent
 
@@ -69,6 +70,7 @@ def build_registry() -> AgentRegistry:
     reg.register(ResumeAgent())
     reg.register(JobAgent())
     reg.register(MatchAgent())
+    reg.register(ReportSynthesizer())
     return reg
 
 

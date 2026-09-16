@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.agent_runtime.complexity import NORMAL, SIMPLE, assess_complexity
 from app.core.config import settings
 
 
@@ -21,7 +22,7 @@ class PlanError(Exception):
 
 
 def build_match_plan() -> list[PlanStep]:
-    """简历-岗位匹配链路：resume/job 并行 → match → validator。"""
+    """简历-岗位匹配链路：resume/job 并行 → match → validator → report。"""
     return [
         PlanStep(id="resume", agent="resume_agent"),
         PlanStep(id="job", agent="job_agent"),
@@ -32,14 +33,37 @@ def build_match_plan() -> list[PlanStep]:
             params={"optional": False},
         ),
         PlanStep(id="validator", agent="validator_agent", depends_on=["match"]),
+        PlanStep(
+            id="report",
+            agent="report_synthesizer",
+            depends_on=["validator"],
+            params={"optional": True},
+        ),
     ]
 
 
-def build_data_plan() -> list[PlanStep]:
-    """数据分析链路：data → validator。"""
+def build_data_plan(query: str = "") -> list[PlanStep]:
+    """数据分析链路：根据复杂度自适应。"""
+    complexity = assess_complexity(query) if query else NORMAL
+
+    if complexity == SIMPLE:
+        # 简单问题：跳过 validator，直接完成
+        return [
+            PlanStep(id="data", agent="data_agent"),
+        ]
+
+    # MEDIUM 暂与 NORMAL/COMPLEX 走相同完整链路（data → validator → report）。
+    # 区别预留：未来 MEDIUM 可考虑轻量校验（跳过 report 或降低 validator 严格度），
+    # 而 COMPLEX 保持增强校验 + 报告合成。
     return [
         PlanStep(id="data", agent="data_agent"),
         PlanStep(id="validator", agent="validator_agent", depends_on=["data"]),
+        PlanStep(
+            id="report",
+            agent="report_synthesizer",
+            depends_on=["validator"],
+            params={"optional": True},
+        ),
     ]
 
 

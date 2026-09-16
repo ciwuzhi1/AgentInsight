@@ -19,6 +19,7 @@ from app.agent_runtime.state import TaskState
 from app.cache.keys import resume_key
 from app.cache.policies import TTL_RESUME
 from app.cache.redis import get_json, set_json
+from app.context.compressor import compress_resume
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -290,10 +291,13 @@ class ResumeAgent(BaseAgent):
             except Exception as exc:  # noqa: BLE001
                 logger.warning("save_resume 落库失败（不阻断）resume_id=%s: %s", resume_id, exc)
 
+        # Context Engineering：压缩画像后写入 results，降低下游 token 消耗
+        compressed_profile = compress_resume(profile)
+
         data = {
             "resume_id": resume_id,
             "filename": filename,
-            "profile": profile,
+            "profile": compressed_profile,
             "text_chars": text_chars,
             "parse_backend": backend,
             "profile_source": source,

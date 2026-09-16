@@ -105,6 +105,22 @@ class DuckDBEngine(AnalysisEngine):
             self._close_conn(dataset_id)
         logger.info("DuckDB 所有连接已关闭")
 
+    def connection_count(self) -> int:
+        """当前活跃连接数（健康检查用）。"""
+        return len(self._conns)
+
+    def unregister_dataset(self, dataset_id: str) -> None:
+        """注销数据集：DROP VIEW + 关闭并移除连接（删除数据集时调用，幂等）。"""
+        table = self._tables.get(dataset_id) or table_for(dataset_id)
+        conn = self._conns.get(dataset_id)
+        if conn is not None:
+            try:
+                conn.execute(f"DROP VIEW IF EXISTS {table}")
+            except Exception as exc:
+                logger.warning("DuckDB 视图清理失败 dataset=%s table=%s: %s", dataset_id, table, exc)
+        self._close_conn(dataset_id)
+        logger.info("数据集已注销 dataset=%s table=%s", dataset_id, table)
+
     def register_dataset(self, dataset_id: str, name: str, path: str) -> dict:
         """把 CSV 注册为视图并返回 schema；path/mtime 未变时复用缓存视图。"""
         table = table_for(dataset_id)
