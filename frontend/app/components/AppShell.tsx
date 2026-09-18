@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Navbar from "./Navbar";
 import Sidebar from "./Sidebar";
 import { WorkspaceProvider } from "./workspace-context";
+import { ensureAuthToken, installAuthFetch } from "../auth-client";
 
 const THEME_KEY = "agentinsight-theme";
 export type ThemeName = "navy" | "amber";
@@ -21,6 +22,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    installAuthFetch();
+    void ensureAuthToken();
     setTheme(readTheme());
     setSidebarCollapsed(localStorage.getItem("agentinsight-sidebar") === "1");
     setReady(true);

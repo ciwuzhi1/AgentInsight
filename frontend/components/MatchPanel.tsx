@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ErrorBar, OkBar, Badge, Section } from "./ui";
+import { ensureAuthToken } from "@/app/auth-client";
 import {
   API_BASE,
   errText,
@@ -44,6 +45,7 @@ export default function MatchPanel({
       setJobsLoading(true);
       setJobsError(null);
       try {
+        await ensureAuthToken();
         const res = await fetch(`${API_BASE}/api/crawler/jobs?limit=50`);
         if (!res.ok) throw await readError(res);
         const data = (await res.json()) as { items?: CrawlerJobItem[] };

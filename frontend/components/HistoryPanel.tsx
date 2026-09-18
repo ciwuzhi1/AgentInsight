@@ -5,6 +5,7 @@
 import { useState } from "react";
 import type { FinalResult } from "./ResultCard";
 import { Collapsible } from "./Collapsible";
+import { ensureAuthToken } from "@/app/auth-client";
 import {
   API_BASE,
   errText,
@@ -29,6 +30,7 @@ export default function HistoryPanel({
   async function load() {
     setError(null);
     try {
+      await ensureAuthToken();
       const res = await fetch(`${API_BASE}/api/tasks?limit=20`);
       if (!res.ok) throw await readError(res);
       setItems(((await res.json()) as { items: HistoryItem[] }).items);
@@ -41,6 +43,7 @@ export default function HistoryPanel({
     setReplaying(taskId);
     setError(null);
     try {
+      await ensureAuthToken();
       const res = await fetch(`${API_BASE}/api/tasks/${taskId}/trace`);
       if (!res.ok) throw await readError(res);
       const body = (await res.json()) as {
@@ -58,6 +61,7 @@ export default function HistoryPanel({
   async function download(taskId: string, fmt: "csv" | "json") {
     setError(null);
     try {
+      await ensureAuthToken();
       const res = await fetch(
         `${API_BASE}/api/tasks/${taskId}/export?format=${fmt}`
       );

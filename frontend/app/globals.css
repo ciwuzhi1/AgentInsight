@@ -57,6 +57,9 @@
   --chart-axis-label: #94a3b8;
   --chart-track: #1e293b;
 
+  /* 深蓝主题主按钮前景 */
+  --on-primary: #ffffff;
+
   /* App Shell */
   --sidebar-w-collapsed: 56px;
   --sidebar-w-expanded: 240px;
@@ -116,11 +119,6 @@
 
   --chart-axis-label: #57534e;
   --chart-track: #fde68a;
-}
-
-/* 主按钮前景色：navy 白字 / amber 深字 */
-:root {
-  --on-primary: #ffffff;
 }
 
 body {

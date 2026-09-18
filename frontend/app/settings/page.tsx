@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { installAuthFetch } from "../auth-client";
+import { ensureAuthToken, forceRefreshAuth, installAuthFetch } from "../auth-client";
 
 installAuthFetch();
 
@@ -15,7 +15,8 @@ type ModelConfig = {
   name: string;
   provider: string;
   base_url: string;
-  api_key: string;
+  api_key?: string;
+  api_key_masked?: string;
   model: string;
   temperature: number;
   is_active: boolean;
@@ -52,6 +53,7 @@ async function readError(res: Response): Promise<Error> {
 function ErrorBar({ message }: { message: string }) {
   return (
     <div
+      role="alert"
       className="mt-3 rounded-lg border px-4 py-3 text-sm"
       style={{
         borderColor: "var(--status-error-border)",
@@ -188,10 +190,31 @@ export default function SettingsPage() {
     setError(null);
     setOkMsg(null);
     try {
+      // 先确保 Bearer（登录页已移除，自动注册/登录）
+      await ensureAuthToken();
       const [mRes, sRes] = await Promise.all([
         fetch(`${API_BASE}/api/models`),
         fetch(`${API_BASE}/api/settings`),
       ]);
+      if (mRes.status === 401 || sRes.status === 401) {
+        await forceRefreshAuth();
+        const [m2, s2] = await Promise.all([
+          fetch(`${API_BASE}/api/models`),
+          fetch(`${API_BASE}/api/settings`),
+        ]);
+        if (m2.status === 401) {
+          throw new Error("登录失效：自动重连失败，请刷新页面");
+        }
+        const m = (await m2.json()) as unknown;
+        const s = (await s2.json()) as Record<string, string>;
+        const list = Array.isArray(m)
+          ? m
+          : ((m as { items?: ModelConfig[] }).items ?? []);
+        setModels(list as ModelConfig[]);
+        setSettings(s ?? {});
+        setDraft({});
+        return;
+      }
       if (!mRes.ok) throw new Error(`加载模型列表失败（HTTP ${mRes.status}）`);
       if (!sRes.ok) throw new Error(`加载设置失败（HTTP ${sRes.status}）`);
       const m = (await mRes.json()) as unknown;
@@ -239,6 +262,7 @@ export default function SettingsPage() {
     setError(null);
     setOkMsg(null);
     try {
+      await ensureAuthToken();
       const res = await fetch(`${API_BASE}/api/models`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -253,7 +277,7 @@ export default function SettingsPage() {
       });
       if (!res.ok) throw await readError(res);
       resetForm();
-      setOkMsg("模型配置已添加");
+      setOkMsg("模型配置已添加，已刷新列表");
       await loadAll();
     } catch (e) {
       setError(errText(e));
@@ -267,6 +291,7 @@ export default function SettingsPage() {
     setError(null);
     setOkMsg(null);
     try {
+      await ensureAuthToken();
       const res = await fetch(`${API_BASE}/api/models/${id}/activate`, {
         method: "PUT",
       });
@@ -285,6 +310,7 @@ export default function SettingsPage() {
     setError(null);
     setTestResult((prev) => ({ ...prev, [id]: "测试中…" }));
     try {
+      await ensureAuthToken();
       const res = await fetch(`${API_BASE}/api/models/${id}/test`, {
         method: "POST",
       });
@@ -433,7 +459,7 @@ export default function SettingsPage() {
                     ) : (
                       <Badge>未激活</Badge>
                     )}
-                    <Badge tone="slate">key: {m.api_key}</Badge>
+                    <Badge tone="slate">key: {m.api_key_masked || m.api_key || "—"}</Badge>
                   </div>
                   <p className="mt-1 font-mono text-xs text-[var(--text-muted)]">
                     {m.base_url} · temperature {m.temperature}

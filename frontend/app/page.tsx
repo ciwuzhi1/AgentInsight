@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import ResultCard, { type FinalResult } from "@/components/ResultCard";
-import { installAuthFetch, sseUrl } from "./auth-client";
+import { ensureAuthToken, installAuthFetch, sseUrl } from "./auth-client";
 import { ErrorBar, OkBar } from "@/components/ui";
 import { API_BASE, errText, type MatchFinal, type SseEvent, type TraceStep, type DatasetInfo } from "@/components/shared";
 import UploadPanel from "@/components/UploadPanel";
@@ -82,6 +82,18 @@ export default function Home() {
     clearReconnectTimer();
     esRef.current?.close();
     activeTaskIdRef.current = taskId;
+    void ensureAuthToken().then((token) => {
+      if (activeTaskIdRef.current !== taskId) return;
+      if (!token) {
+        setAskError("鉴权未就绪，无法订阅任务事件");
+        setRunning(false);
+        return;
+      }
+      openEventStream(taskId, opts);
+    });
+  }
+
+  function openEventStream(taskId: string, opts?: { preserve?: boolean }) {
     if (!opts?.preserve) {
       setEvents([]);
       setFinal(null);
@@ -147,6 +159,7 @@ export default function Home() {
         return;
       }
       setRunning(false);
+      setOkMsg(null);
       setAskError("事件流连接中断（重连次数已用尽，请刷新页面）");
     };
   }
@@ -165,6 +178,7 @@ export default function Home() {
     setTaskKind("analysis");
     setRunning(true);
     try {
+      await ensureAuthToken();
       const res = await fetch(`${API_BASE}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -212,6 +226,7 @@ export default function Home() {
     setTaskKind("match");
     setRunning(true);
     try {
+      await ensureAuthToken();
       const res = await fetch(`${API_BASE}/api/matches`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

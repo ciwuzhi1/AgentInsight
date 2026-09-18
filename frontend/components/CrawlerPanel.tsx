@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { ErrorBar, Badge } from "./ui";
 import { Collapsible } from "./Collapsible";
+import { ensureAuthToken } from "@/app/auth-client";
 import { API_BASE, errText, readError, type JobItem } from "./shared";
 
 export default function CrawlerPanel({
@@ -30,6 +31,7 @@ export default function CrawlerPanel({
     setExported(null);
     onLog?.(`开始抓取（页数 ${pages}${url.trim() ? ` · ${url.trim()}` : " · 默认站"}）`);
     try {
+      await ensureAuthToken();
       const body: Record<string, unknown> = { pages };
       if (url.trim()) body.url = url.trim();
       const res = await fetch(`${API_BASE}/api/crawler/run`, {
@@ -63,6 +65,7 @@ export default function CrawlerPanel({
     setError(null);
     onLog?.("导出 CSV…");
     try {
+      await ensureAuthToken();
       const res = await fetch(`${API_BASE}/api/crawler/export`, {
         method: "POST",
       });

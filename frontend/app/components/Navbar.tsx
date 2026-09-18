@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { getToken, getUsername, clearAuth } from "../auth-client";
+import { getToken, getUsername, ensureAuthToken, forceRefreshAuth } from "../auth-client";
 
 /** AI 图标：圆角方块 + 四芒星 */
 function AiIcon({ className = "h-7 w-7" }: { className?: string }) {
@@ -63,12 +63,40 @@ export default function Navbar({
 } = {}) {
   const [username, setUsername] = useState<string | null>(null);
   const [authed, setAuthed] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setAuthed(Boolean(getToken()));
-    setUsername(getUsername());
+    let cancelled = false;
+    async function syncAuth() {
+      await ensureAuthToken();
+      if (cancelled) return;
+      setAuthed(Boolean(getToken()));
+      setUsername(getUsername());
+      setAuthReady(true);
+    }
+    void syncAuth();
+
+    function onAuthEvent() {
+      setAuthed(Boolean(getToken()));
+      setUsername(getUsername());
+    }
+    window.addEventListener("agentinsight:auth", onAuthEvent);
+
+    const t = setInterval(async () => {
+      if (!getToken()) await ensureAuthToken();
+      if (cancelled) return;
+      setAuthed(Boolean(getToken()));
+      setUsername(getUsername());
+      if (getToken()) setAuthReady(true);
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      window.removeEventListener("agentinsight:auth", onAuthEvent);
+    };
   }, []);
 
   // 点击菜单外部关闭
@@ -84,11 +112,12 @@ export default function Navbar({
   }, [avatarOpen]);
 
   function logout() {
-    clearAuth();
-    setAuthed(false);
-    setUsername(null);
+    // 常驻单账号模式：「退出」= 强制重置会话并重新自动登录
     setAvatarOpen(false);
-    window.location.href = "/";
+    void forceRefreshAuth().then((t) => {
+      setAuthed(Boolean(t));
+      setUsername(getUsername());
+    });
   }
 
   const initial = username ? username.slice(0, 1).toUpperCase() : "?";
@@ -173,53 +202,76 @@ export default function Navbar({
             <span className="hidden sm:inline">设置</span>
           </Link>
 
-          {authed ? (
-            <div className="relative" ref={menuRef}>
-              <button
-                type="button"
-                onClick={() => setAvatarOpen((v) => !v)}
-                className="flex h-8 items-center gap-1.5 rounded-lg px-1.5 text-sm transition hover-surface"
-                style={{ color: "var(--text-primary)" }}
-                aria-haspopup="menu"
-                aria-expanded={avatarOpen}
+          {/* 右侧登录模块：常驻，布局不变 */}
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => setAvatarOpen((v) => !v)}
+              className="flex h-8 items-center gap-1.5 rounded-lg px-1.5 pr-2.5 text-sm transition hover-surface"
+              style={{ color: "var(--text-primary)" }}
+              aria-haspopup="menu"
+              aria-expanded={avatarOpen}
+              aria-label="用户菜单"
+            >
+              <span
+                className="flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold"
+                style={{
+                  background: "linear-gradient(135deg, var(--primary-light), var(--primary-dark))",
+                  color: "var(--on-primary, #fff)",
+                  opacity: authed ? 1 : 0.55,
+                }}
               >
-                <span
-                  className="flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold text-white"
+                {initial}
+              </span>
+              <span className="hidden max-w-[7rem] truncate sm:inline">
+                {!authReady
+                  ? "连接中…"
+                  : authed
+                    ? (username ?? "已登录")
+                    : "自动登录…"}
+              </span>
+            </button>
+
+            {avatarOpen && (
+              <div
+                className="glass absolute right-0 mt-1.5 w-44 overflow-hidden py-1"
+                role="menu"
+              >
+                <p
+                  className="truncate border-b px-3 py-2 text-xs"
                   style={{
-                    background: "linear-gradient(135deg, var(--primary-light), var(--primary-dark))",
+                    borderColor: "var(--border-glass)",
+                    color: "var(--text-secondary)",
                   }}
                 >
-                  {initial}
-                </span>
-              </button>
-
-              {avatarOpen && (
-                <div
-                  className="glass absolute right-0 mt-1.5 w-40 overflow-hidden py-1"
-                  role="menu"
+                  {authed ? (username ?? "") : "尚未获得 token"}
+                </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await forceRefreshAuth();
+                    setAuthed(Boolean(getToken()));
+                    setUsername(getUsername());
+                    setAvatarOpen(false);
+                  }}
+                  className="block w-full px-3 py-2 text-left text-sm transition hover-surface"
+                  style={{ color: "var(--text-secondary)" }}
+                  role="menuitem"
                 >
-                  <p
-                    className="truncate border-b px-3 py-2 text-xs"
-                    style={{
-                      borderColor: "var(--border-glass)",
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    {username ?? ""}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={logout}
-                    className="block w-full px-3 py-2 text-left text-sm transition hover-surface"
-                    style={{ color: "var(--text-secondary)" }}
-                    role="menuitem"
-                  >
-                    退出登录
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : null}
+                  重新连接
+                </button>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="block w-full px-3 py-2 text-left text-sm transition hover-surface"
+                  style={{ color: "var(--text-secondary)" }}
+                  role="menuitem"
+                >
+                  重置会话
+                </button>
+              </div>
+            )}
+          </div>
         </nav>
       </div>
     </header>
