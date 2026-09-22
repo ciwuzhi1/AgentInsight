@@ -35,16 +35,21 @@ Thumbs.db
 # backend 运行时临时文件
 backend/data/tmp_*
 
-# 本地笔记 / 内部草稿（不入库）
+# 本地笔记 / 内部草稿 / 过程文档（不入库）
 优化备忘.md
-docs/优化备忘.md
-docs/optimize-backlog.md
-docs/optimize-backlog.local.md
+ROADMAP.md
+CONTRACTS*.md
+.commandcode/
+docs/compose/
 docs/*笔记*.md
 docs/*备忘*.md
+docs/*草稿*.md
+docs/*设计文档*.md
+docs/optimize-backlog.md
+docs/optimize-backlog.local.md
 docs/AgentInsight_V3.0_开发设计文档.md
-docs/compose/
 docs/DuckDB与匹配算法笔记.md
-CONTRACTS*.md
-ROADMAP.md
-.commandcode/
+*.local.md
+*.draft.md
+**/scratch/
+**/tmp_docs/
