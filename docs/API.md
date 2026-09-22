@@ -335,7 +335,7 @@ Authorization: Bearer <token>
       "status": "completed",
       "query": "按地区统计总销售额",
       "dataset_id": "a1b2c3d4...",
-      "created_at": "2026-03-11T10:30:00"
+      "created_at": "2024-01-15T10:30:00"
     }
   ],
   "has_more": false
@@ -428,8 +428,8 @@ Authorization: Bearer <token>
   "status": "completed",
   "engine": "duckdb",
   "query": "按地区统计总销售额",
-  "created_at": "2026-03-11T10:30:00",
-  "completed_at": "2026-03-11T10:30:01",
+  "created_at": "2024-01-15T10:30:00",
+  "completed_at": "2024-01-15T10:30:01",
   "steps": [
     {
       "step": 1,
@@ -512,7 +512,7 @@ Authorization: Bearer <token>
     "education": "本科",
     "experience_years": 5
   },
-  "created_at": "2026-03-11 10:30:00"
+  "created_at": "2024-01-15 10:30:00"
 }
 ```
 

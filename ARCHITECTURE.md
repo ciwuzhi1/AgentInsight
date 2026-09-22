@@ -1,8 +1,6 @@
-# ARCHITECTURE — AgentInsight 系统设计与扩展指南（V3.0）
+# ARCHITECTURE — AgentInsight 系统设计与扩展指南
 
-> 图解版见 [`docs/架构说明.md`](docs/架构说明.md)（结构图 + 时序图 + 近期能力表；本文侧重实现细节与扩展指南，避免两处重复维护长文）。
->
-> 本文描述的是 **V3.0 已实现** 的架构。移除 Spark，新增 Context Engineering、Report Synthesizer、Few-shot 检索、动态复杂度规划。
+> 图解版见 [`docs/架构说明.md`](docs/架构说明.md)。本文侧重实现细节与扩展指南。
 
 ## 1. 一句话架构
 
@@ -69,7 +67,7 @@ AgentInsight/
 │   └── settings/page.tsx      #   /settings 独立设置页（模型+开关）
 ├── scripts/                   # gen_data / init_db / bench_duckdb / api_bench
 ├── docker-compose.yml         # 仅 Redis（MySQL 用本机服务）
-└── docs/                      # API.md / V3.0 设计文档
+└── docs/                      # API.md / 架构说明 / 测试说明 / 截图
 ```
 
 **端口**：前端 3100 / 后端 8100（根路径是人类导航页；接口文档 `/docs`）。
