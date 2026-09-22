@@ -96,6 +96,21 @@ def _education_score(education: str) -> int:
     return _EDU_SCORE.get(_norm(education), 50)
 
 
+def _profile_experience_years(profile: dict) -> int:
+    """以 resume.profile 为唯一数据源读取工作年限。
+
+    仅当键缺失或为 None 时兜底 0；合法的 0 以及其它真值原样保留，
+    保证 final_result.resume.experience_years 与 profile.get("experience_years") 一致。
+    """
+    raw = (profile or {}).get("experience_years")
+    if raw is None:
+        return 0
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
 # ---------- 消息收集 ----------
 
 def _receiver_text(receiver: object) -> str:
@@ -172,11 +187,12 @@ def compute_match(profile: dict, jobs: list[dict]) -> dict:
         project_score = 100 if hit else 60
 
     # experience：JD 无经验要求满分，有则 resume 年限/要求 线性封顶
+    # 年限以 profile.get("experience_years") 为准；仅缺失时按 0，避免与 final_result 矛盾
     required_years = _extract_required_years(jobs)
+    years = _profile_experience_years(profile)
     if required_years is None or required_years <= 0:
         experience_score = 100
     else:
-        years = profile.get("experience_years") or 0
         try:
             experience_score = min(100, round(float(years) / required_years * 100))
         except (TypeError, ValueError):
@@ -276,17 +292,22 @@ class MatchAgent(BaseAgent):
             interpretation = _template_interpretation(score, dimensions, skill_gap)
             interp_source = "mock"
 
+        # experience_years 以 profile 为唯一数据源（与 dimensions.experience 打分同源）
+        experience_years = _profile_experience_years(profile)
         data = {
             "score": score,
             "dimensions": dimensions,
             "skill_gap": skill_gap,
             "interpretation": interpretation,
             "interpretation_source": interp_source,
+            # 顶层冗余一份，便于 final_result 直接读取；值来自 profile.get("experience_years")
+            "experience_years": experience_years,
             "resume": {
                 "resume_id": resume_payload.get("resume_id"),
                 "filename": resume_payload.get("filename"),
                 "skills": profile.get("skills") or [],
-                "experience_years": profile.get("experience_years") or 0,
+                # 以 resume.profile.experience_years 为准（profile.get("experience_years")）
+                "experience_years": experience_years,
                 "education": profile.get("education") or "",
             },
             "jobs": [

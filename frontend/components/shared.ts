@@ -81,6 +81,18 @@ export const DIM_LABELS: Record<string, string> = {
   engineering: "工程",
 };
 
+/** 快捷提问预设：Sidebar 与 ChatPanel 的单一来源 */
+export const JOB_PROMPT_PRESETS = [
+  "JD 中需求最多的技能 Top 10 是什么？",
+  "统计各城市的岗位数量和平均薪资，按数量降序",
+  "要求 Python 的岗位里，哪个城市平均薪资最高？",
+  "各薪资区间（salary_k）的岗位数量分布",
+  "'Python+SQL' 同时出现的岗位有多少？",
+  "对比北京和上海岗位的技能要求差异",
+  "最近发布（2025-05 之后）的岗位最常见 5 项技能",
+  "岗位数量最多的公司 Top 5",
+];
+
 /* ---------- 辅助 ---------- */
 
 export function errText(e: unknown): string {

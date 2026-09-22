@@ -28,3 +28,17 @@ Thumbs.db
 !docs/screenshots/*.png
 .playwright-mcp/
 .test_token
+
+# 构建产物
+*.tsbuildinfo
+
+# backend 运行时临时文件
+backend/data/tmp_*
+
+# 优化待办（本地备忘，不入库）
+docs/optimize-backlog.md
+docs/optimize-backlog.local.md
+
+# 优化备忘（本地备忘，不入库）
+优化备忘.md
+docs/优化备忘.md

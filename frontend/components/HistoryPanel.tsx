@@ -25,9 +25,15 @@ export default function HistoryPanel({
 }) {
   const [items, setItems] = useState<HistoryItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [replaying, setReplaying] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<string | null>(null);
+
+  const anyBusy = loading || replaying !== null || exporting !== null;
 
   async function load() {
+    if (loading) return;
+    setLoading(true);
     setError(null);
     try {
       await ensureAuthToken();
@@ -36,10 +42,13 @@ export default function HistoryPanel({
       setItems(((await res.json()) as { items: HistoryItem[] }).items);
     } catch (e) {
       setError(errText(e));
+    } finally {
+      setLoading(false);
     }
   }
 
   async function replay(taskId: string) {
+    if (anyBusy) return;
     setReplaying(taskId);
     setError(null);
     try {
@@ -59,6 +68,9 @@ export default function HistoryPanel({
   }
 
   async function download(taskId: string, fmt: "csv" | "json") {
+    const key = `${taskId}:${fmt}`;
+    if (anyBusy) return;
+    setExporting(key);
     setError(null);
     try {
       await ensureAuthToken();
@@ -76,6 +88,8 @@ export default function HistoryPanel({
       setTimeout(() => URL.revokeObjectURL(a.href), 1500);
     } catch (e) {
       setError(errText(e));
+    } finally {
+      setExporting(null);
     }
   }
 
@@ -92,14 +106,17 @@ export default function HistoryPanel({
         <button
           type="button"
           onClick={load}
-          className="btn-ghost shrink-0 rounded-md border border-[var(--border-default)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]"
+          disabled={anyBusy}
+          className="btn-ghost shrink-0 rounded-md border border-[var(--border-default)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {items ? "刷新" : "加载历史"}
+          {loading ? "加载中…" : items ? "刷新" : "加载历史"}
         </button>
       }
     >
       {error && (
-        <p className="mb-2 text-xs text-[var(--status-error)]">{error}</p>
+        <p role="alert" className="mb-2 text-xs text-[var(--status-error)]">
+          {error}
+        </p>
       )}
       {items && items.length === 0 && (
         <p className="py-2 text-center text-xs text-[var(--text-muted)]">
@@ -144,23 +161,28 @@ export default function HistoryPanel({
               </span>
               <span className="text-[var(--text-muted)]">{it.created_at}</span>
               <button
+                type="button"
                 onClick={() => replay(it.id)}
-                disabled={replaying === it.id}
-                className="btn-ghost rounded border border-[var(--border-default)] px-2 py-0.5 text-[var(--text-secondary)] disabled:opacity-50"
+                disabled={anyBusy}
+                className="btn-ghost rounded border border-[var(--border-default)] px-2 py-0.5 text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {replaying === it.id ? "回放中…" : "回放"}
               </button>
               <button
+                type="button"
                 onClick={() => download(it.id, "csv")}
-                className="btn-ghost rounded border border-[var(--border-default)] px-2 py-0.5 text-[var(--text-secondary)]"
+                disabled={anyBusy}
+                className="btn-ghost rounded border border-[var(--border-default)] px-2 py-0.5 text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                CSV
+                {exporting === `${it.id}:csv` ? "导出中…" : "CSV"}
               </button>
               <button
+                type="button"
                 onClick={() => download(it.id, "json")}
-                className="btn-ghost rounded border border-[var(--border-default)] px-2 py-0.5 text-[var(--text-secondary)]"
+                disabled={anyBusy}
+                className="btn-ghost rounded border border-[var(--border-default)] px-2 py-0.5 text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                JSON
+                {exporting === `${it.id}:json` ? "导出中…" : "JSON"}
               </button>
             </li>
           ))}

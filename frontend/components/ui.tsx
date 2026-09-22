@@ -1,6 +1,6 @@
 "use client";
 
-/* 共享 UI 小组件：错误/成功条、徽标、卡内 Section、页面 Card */
+/* 共享 UI 小组件：错误/成功条、徽标、卡内 Section */
 
 import { useState, type ReactNode } from "react";
 
@@ -54,7 +54,10 @@ export function ErrorBar({
 
 export function OkBar({ message }: { message: string }) {
   return (
-    <div className="mt-3 rounded-lg border border-[var(--status-ok-border)] bg-[var(--status-ok-bg)] px-4 py-3 text-sm text-[var(--status-ok)]">
+    <div
+      role="status"
+      className="mt-3 rounded-lg border border-[var(--status-ok-border)] bg-[var(--status-ok-bg)] px-4 py-3 text-sm text-[var(--status-ok)]"
+    >
       {message}
     </div>
   );
@@ -165,73 +168,4 @@ export function Section({
   );
 }
 
-/** 主页板块外层卡片：小图标 + 编号 + 标题 + 一句说明，可折叠 */
-export function Card({
-  id,
-  icon,
-  no,
-  title,
-  desc,
-  children,
-  defaultOpen = true,
-  collapsible = true,
-}: {
-  id: string;
-  icon: string;
-  no: string;
-  title: string;
-  desc: string;
-  children: ReactNode;
-  defaultOpen?: boolean;
-  collapsible?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  const expanded = collapsible ? open : true;
 
-  return (
-    <section id={id} className="glass scroll-mt-20 p-3 sm:p-4">
-      <div className="mb-3 border-b border-[var(--border-glass)] pb-2">
-        <button
-          type="button"
-          onClick={() => collapsible && setOpen((v) => !v)}
-          disabled={!collapsible}
-          className={`flex w-full items-center gap-2.5 text-left ${
-            collapsible ? "collapse-header" : ""
-          }`}
-          aria-expanded={collapsible ? expanded : undefined}
-        >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)]/10 text-sm">
-            {icon}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-[var(--text-primary)]">
-              <span className="font-mono text-[10px] font-bold tracking-widest text-[var(--primary-light)]">
-                {no}
-              </span>
-              {title}
-            </span>
-            <span className="mt-0.5 block text-[11px] text-[var(--text-secondary)]">
-              {desc}
-            </span>
-          </span>
-          {collapsible && <CollapseChevron open={expanded} />}
-        </button>
-      </div>
-      {collapsible ? (
-        <div
-          className="collapse-grid"
-          data-open={expanded}
-          style={{
-            display: "grid",
-            gridTemplateRows: expanded ? "1fr" : "0fr",
-            transition: "grid-template-rows 0.22s ease",
-          }}
-        >
-          <div style={{ overflow: "hidden", minHeight: 0 }}>{children}</div>
-        </div>
-      ) : (
-        children
-      )}
-    </section>
-  );
-}

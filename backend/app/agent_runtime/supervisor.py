@@ -6,16 +6,25 @@
 """
 from __future__ import annotations
 
+import asyncio
 import time
 
-from app.agent_runtime.executor import WorkflowExecutor
+from app.agent_runtime.executor import WorkflowExecutor, force_fail_final
 from app.agent_runtime.planner import PlanStep, build_data_plan, build_match_plan
 from app.agent_runtime.registry import AgentRegistry, registry
 from app.agent_runtime.state import TaskState, TaskStatus
 from app.agents.base import EmitFn
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # 求职意图关键词；命中说明本轮问题与"简历-岗位匹配"相关
 _RESUME_KEYWORDS = ("简历", "岗位", "匹配")
+
+# 任务总超时（秒）：路由 + 全部步骤（含重试）的硬上限。
+# 单步 _STEP_TIMEOUT_S=120 × (1+MAX_RETRY) 已覆盖单步挂起；此处兜底
+# 多步串行 / emit 落库卡死 / 事件循环饿死等，超时后强制 failed_final 并写 error。
+_TASK_TIMEOUT_S = 600
 
 
 class Supervisor:
@@ -44,12 +53,50 @@ class Supervisor:
         return build_data_plan(state.query)
 
     async def run_task(self, state: TaskState, emit: EmitFn) -> TaskState:
-        """完整编排：路由 → 广播 plan → 委托 WorkflowExecutor 执行。"""
+        """完整编排：路由 → 广播 plan → 委托 WorkflowExecutor 执行。
+
+        带总超时看门狗：超时后 force_fail_final 并发 terminal error，
+        保证 update_task 能写到 failed_final + 明确 error，而不是永远 routing。
+        """
         t0 = time.perf_counter()
         state.transition(TaskStatus.ROUTING)
         await emit({"type": "state", "status": "routing", "task_id": state.task_id})
 
-        steps = await self.route(state, emit)
+        try:
+            return await asyncio.wait_for(
+                self._run_phases(state, emit, t0), timeout=_TASK_TIMEOUT_S
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            # 看门狗超时：强制终态 + 明确 error（含当前 agent / 阶段）。
+            # terminal error 由 API 层 _run 统一补发，这里只保证状态与 errors 就绪。
+            agents = "、".join(sorted(state.current_agents)) or "unknown_agent"
+            phase = "routing" if state.status is TaskStatus.ROUTING else "running"
+            msg = (
+                f"{agents} 任务总超时（超过 {_TASK_TIMEOUT_S} 秒，阶段 {phase}）："
+                f"已中止执行，请稍后重试或缩小查询范围"
+            )
+            state.errors.append(msg)
+            state.context["error_code"] = "TIMEOUT"
+            state.context["error_reason"] = "task_timeout"
+            force_fail_final(state)
+            logger.warning("任务总超时 task=%s: %s", state.task_id, msg)
+            return state
+
+    async def _run_phases(self, state: TaskState, emit: EmitFn, t0: float) -> TaskState:
+        """路由 → plan → 执行（不含总超时包装）。"""
+        try:
+            steps = await self.route(state, emit)
+        except Exception as exc:
+            # 路由阶段异常：不能让状态停在 routing，强制终态并写 error
+            raw = (str(exc) or "").strip() or type(exc).__name__
+            msg = f"路由失败：{raw}"
+            state.errors.append(msg)
+            state.context["error_code"] = "ENGINE_ERROR"
+            state.context["error_reason"] = "route_error"
+            force_fail_final(state)
+            logger.exception("路由失败 task=%s", state.task_id)
+            return state
+
         state.plan_steps = steps
         # plan 语义不变：agent 名单（clarify 时保留原名）
         state.plan = [s.agent for s in steps] if steps else ["clarify"]
@@ -87,7 +134,21 @@ class Supervisor:
             }
         )
         state.transition(TaskStatus.RUNNING)
-        return await WorkflowExecutor(self._registry).execute(state, emit)
+        # 同步 DB 状态：避免 tasks.status 一直停在 routing（可观测契约）
+        await emit({"type": "state", "status": "running", "task_id": state.task_id})
+        try:
+            return await WorkflowExecutor(self._registry).execute(state, emit)
+        except Exception as exc:
+            # 执行阶段未捕获异常（如 PlanError）：强制终态，避免卡在 running
+            raw = (str(exc) or "").strip() or type(exc).__name__
+            agents = "、".join(sorted(state.current_agents)) or "unknown_agent"
+            msg = f"{agents} 执行失败：{raw}"
+            state.errors.append(msg)
+            state.context["error_code"] = "ENGINE_ERROR"
+            state.context["error_reason"] = "execute_error"
+            force_fail_final(state)
+            logger.exception("执行阶段异常 task=%s", state.task_id)
+            return state
 
     async def _finish(
         self, state: TaskState, emit: EmitFn, final: dict | None, t0: float

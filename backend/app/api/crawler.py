@@ -40,11 +40,15 @@ CRAWL_INTERVAL = 0.5
 
 
 class CrawlerRunRequest(BaseModel):
-    """POST /run 请求体；url 留空用默认演示站。"""
+    """POST /run 请求体；url 留空用默认演示站。
+
+    max_items：单次最多入库条数，默认 10（1~50）。
+    pages：翻页范围 1~20，默认 1。
+    """
 
     url: str | None = None
     pages: int = Field(default=1, ge=1, le=20)
-    max_items: int = Field(default=50, ge=1, le=500)
+    max_items: int = Field(default=10, ge=1, le=50)
 
 
 def _page_url(base: str, page: int) -> str:
@@ -55,48 +59,86 @@ def _page_url(base: str, page: int) -> str:
 
 
 async def run(url: str | None, pages: int, max_items: int) -> dict:
-    """抓取 → 解析 → 入库 的核心流程，供路由与测试复用。"""
+    """抓取 → 解析 → 逐条入库 的核心流程，供路由与测试复用。
+
+    韧性约定：
+    - 成功一条写一条（storage.upsert_one），不等全部抓完。
+    - 单个 listing/detail/upsert 超时或异常：跳过该条，记录 {url, error}，继续其余。
+    - 响应含 failed_urls；整次尽量 HTTP 200。
+    - 仅 listing 首页整页失败（无任何可解析数据）时向上抛 FetchError → 502。
+    """
     base = url or BASE_URL
     items: list[dict] = []
+    failed_urls: list[dict] = []
+    inserted = skipped = 0
+    listing_ok = False
 
     for page in range(1, pages + 1):
         if len(items) >= max_items:
             break
         page_url = _page_url(base, page) if url else listing_url(page)
-        html = await asyncio.to_thread(fetch, page_url)
-        page_items = parse_listing(html, page_url)
+        try:
+            html = await asyncio.to_thread(fetch, page_url)
+            page_items = parse_listing(html, page_url)
+            listing_ok = True
+        except Exception as exc:
+            # listing 首页整页挂了 → 让路由层 502；否则记录后结束翻页，仍 200
+            if not listing_ok:
+                if isinstance(exc, FetchError):
+                    raise
+                raise FetchError(str(exc)) from exc
+            failed_urls.append({"url": page_url, "error": str(exc)})
+            break
         if not page_items:
             break
         for item in page_items:
             if len(items) >= max_items:
                 break
-            description = ""
-            if item.get("detail_url"):
-                await asyncio.sleep(CRAWL_INTERVAL)
-                detail_html = await asyncio.to_thread(fetch, item["detail_url"])
-                description = parse_detail(detail_html)
-            item["description"] = description
-            item["skills"] = extract_skills(f"{item['title']} {description}")
-            items.append(item)
+            item_url = item.get("detail_url") or page_url
+            try:
+                description = ""
+                if item.get("detail_url"):
+                    await asyncio.sleep(CRAWL_INTERVAL)
+                    detail_html = await asyncio.to_thread(fetch, item["detail_url"])
+                    description = parse_detail(detail_html)
+                item["description"] = description
+                item["skills"] = extract_skills(f"{item['title']} {description}")
+                # 成功一条写一条，不等整次抓完
+                result = await asyncio.to_thread(storage.upsert_one, item)
+                if result == "inserted":
+                    inserted += 1
+                else:
+                    skipped += 1
+                items.append(item)
+            except Exception as exc:
+                failed_urls.append({"url": item_url, "error": str(exc)})
+                continue
         if page < pages:
             await asyncio.sleep(CRAWL_INTERVAL)
 
-    result = await asyncio.to_thread(storage.upsert_jobs, items)
-    result["items"] = [
-        {
-            "title": it["title"],
-            "company": it.get("company"),
-            "location": it.get("location"),
-            "skills": it.get("skills", []),
-        }
-        for it in items
-    ]
-    return result
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "items": [
+            {
+                "title": it["title"],
+                "company": it.get("company"),
+                "location": it.get("location"),
+                "skills": it.get("skills", []),
+            }
+            for it in items
+        ],
+        "failed_urls": failed_urls,
+    }
 
 
 @router.post("/run")
 async def run_crawler(req: CrawlerRunRequest) -> dict:
-    """抓取演示站岗位并落 MySQL。"""
+    """抓取岗位并落 MySQL。
+
+    部分失败仍尽量 200（failed_urls 记录原因）；
+    listing 整页失败 → 502；MySQL 连接级不可用 → 503（兜底）。
+    """
     try:
         return await run(req.url, req.pages, req.max_items)
     except FetchError as exc:

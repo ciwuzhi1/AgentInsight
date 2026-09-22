@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.agent_runtime.executor import force_fail_final
 from app.agent_runtime.registry import registry
 from app.agent_runtime.state import TaskState, TaskStatus
 from app.agent_runtime.supervisor import Supervisor
@@ -257,6 +258,48 @@ def _register_agents() -> None:
         registry.register(ReportSynthesizer())
 
 
+# ---------- 错误文案（可观测契约：tasks.error 必须非空且可读） ----------
+
+def _step_error_text(event: dict) -> str:
+    """步骤失败落库文案：非空，含 agent 名、latency 与 reason 摘要。"""
+    agent = event.get("agent") or "unknown_agent"
+    latency = event.get("latency_ms")
+    reason = (event.get("error") or event.get("message") or "").strip() or "步骤执行失败"
+    reason_code = (event.get("reason") or "").strip()
+    suffix = f"（reason={reason_code}）" if reason_code else ""
+    if latency is not None:
+        return f"{agent} 执行失败（耗时 {latency}ms）{suffix}：{reason}"
+    return f"{agent} 执行失败{suffix}：{reason}"
+
+
+def _task_error_text(state: TaskState, event: dict | None = None) -> str:
+    """任务级 tasks.error 文案：优先事件 message，否则 state.errors，兜底非空且含 agent。"""
+    msg = ""
+    agent = ""
+    if event is not None:
+        msg = (event.get("message") or "").strip()
+        agent = (event.get("agent") or "").strip()
+    if not msg and state.errors:
+        msg = state.errors[-1].strip()
+    if not msg:
+        agents = "、".join(sorted(state.current_agents)) or "unknown_agent"
+        return f"{agents} 任务执行失败"
+    # 可观测契约：error 需能定位 agent；文案未含 agent 时补前缀
+    if agent and agent not in msg:
+        return f"{agent}：{msg}"
+    if not agent and state.current_agents:
+        for name in sorted(state.current_agents):
+            if name and name not in msg:
+                return f"{name}：{msg}"
+    return msg
+
+
+def _current_status_str(state: TaskState) -> str:
+    """TaskState.status → 落库字符串（Enum 兼容）。"""
+    status = state.status
+    return status.value if hasattr(status, "value") else str(status)
+
+
 # ---------- 路由 ----------
 
 @router.post("")
@@ -329,19 +372,62 @@ async def _run(state: TaskState) -> None:
     try:
         _register_agents()
         await Supervisor().run_task(state, emit)
-        # 任务终态失败时补发 terminal error 事件（executor 不单独 emit）
+        # 任务终态失败时补发 terminal error 事件（executor/supervisor 不单独 emit）
         if state.status is TaskStatus.FAILED_FINAL:
-            last_err = state.errors[-1] if state.errors else "任务执行失败"
-            await emit({"type": "error", "code": "ENGINE_ERROR", "message": last_err, "terminal": True})
+            last_err = _task_error_text(state)
+            code = state.context.get("error_code") or "ENGINE_ERROR"
+            reason = state.context.get("error_reason") or ""
+            event: dict = {
+                "type": "error",
+                "code": code,
+                "message": last_err,
+                "terminal": True,
+            }
+            if reason:
+                event["reason"] = reason
+            await emit(event)
+            # 兜底：failed_final + 非空 error 必达 DB（防 _persist_event 被跳过）
+            try:
+                await asyncio.to_thread(
+                    update_task, state.task_id, "failed_final", error=last_err
+                )
+            except Exception as persist_exc:
+                logger.warning(
+                    "终态 tasks.error 落库失败 task=%s: %s",
+                    state.task_id,
+                    persist_exc,
+                )
     except Exception as exc:
         logger.exception("任务执行异常 task=%s", state.task_id)
         try:
-            # 确保状态进入终态再发 terminal error
-            if state.status is TaskStatus.RUNNING:
-                state.transition(TaskStatus.FAILED)
-            if state.status is TaskStatus.FAILED:
-                state.transition(TaskStatus.FAILED_FINAL)
-            await emit({"type": "error", "code": "ENGINE_ERROR", "message": str(exc), "terminal": True})
+            # 确保状态进入终态再发 terminal error（force_fail_final 走合法迁移链，
+            # 覆盖 routing/validating 等非 RUNNING 阶段的异常，避免永远 routing）
+            force_fail_final(state)
+            raw = (str(exc) or "").strip() or type(exc).__name__
+            state.errors.append(f"任务执行异常：{raw}")
+            state.context.setdefault("error_code", "ENGINE_ERROR")
+            state.context.setdefault("error_reason", "unhandled_exception")
+            err_msg = _task_error_text(state)
+            await emit(
+                {
+                    "type": "error",
+                    "code": state.context["error_code"],
+                    "message": err_msg,
+                    "reason": state.context["error_reason"],
+                    "terminal": True,
+                }
+            )
+            # 兜底：异常路径 DB 记 failed_final + 非空 error，便于前端轮询
+            try:
+                await asyncio.to_thread(
+                    update_task, state.task_id, "failed_final", error=err_msg
+                )
+            except Exception as persist_exc:
+                logger.warning(
+                    "异常路径 tasks.error 落库失败 task=%s: %s",
+                    state.task_id,
+                    persist_exc,
+                )
         except Exception:
             pass
     finally:
@@ -356,10 +442,23 @@ async def _persist_event(state: TaskState, event: dict) -> None:
     step 适配：事件 step 是字符串 id，task_steps.step 是 INT 列——
     任务内首次出现的 step id 按顺序分配序号，原始 id 写进 detail JSON。
     plan / retry / step_skipped 事件不落 task_steps（自然落空）。
+
+    错误可观测：步骤 error / 任务 failed_final 时 update_task 必须写
+    非空 error 文案（含 agent 名与 latency）；steps.detail 带 reason 摘要；
+    completed 的 final_result 结构保持不变。
     """
     etype = event.get("type")
     if etype == "state":
-        await asyncio.to_thread(update_task, state.task_id, event["status"])
+        status = event["status"]
+        if status == "failed_final":
+            await asyncio.to_thread(
+                update_task,
+                state.task_id,
+                status,
+                error=_task_error_text(state, event),
+            )
+        else:
+            await asyncio.to_thread(update_task, state.task_id, status)
     elif etype == "agent_start":
         step_id = str(event.get("step") or state.current_step or "")
         await asyncio.to_thread(
@@ -375,21 +474,41 @@ async def _persist_event(state: TaskState, event: dict) -> None:
         step_id = str(event.get("step") or "")
         detail = dict(event.get("detail") or {})
         detail["step_id"] = step_id
+        step_status = event.get("status", "ok")
+        if step_status not in ("ok", "skipped"):
+            detail["error"] = (
+                event.get("error") or detail.get("error") or "步骤执行失败"
+            )
+            # reason 摘要：timeout / llm_timeout / llm_error / sql_error 等
+            reason = (event.get("reason") or detail.get("reason") or "").strip()
+            if reason:
+                detail["reason"] = reason
         await asyncio.to_thread(
             insert_task_step,
             state.task_id,
             _step_seq(state.task_id, step_id),
             event["agent"],
-            event.get("status", "ok"),
+            step_status,
             latency_ms=event.get("latency_ms"),
             retry_count=state.retry_count,
             detail=detail,
         )
-    elif etype == "error":
-        # 只在任务真正进入终态时才写 failed_final；重试中的 error 事件不落终态
-        if state.status is TaskStatus.FAILED_FINAL:
+        # 步骤失败 → 同步 tasks.error（非空，含 agent + latency + reason）
+        if step_status not in ("ok", "skipped"):
             await asyncio.to_thread(
-                update_task, state.task_id, "failed_final", error=event.get("message")
+                update_task,
+                state.task_id,
+                _current_status_str(state),
+                error=_step_error_text(event),
+            )
+    elif etype == "error":
+        # 终态或已是 failed_final 时写 tasks.error；文案保证非空且含 agent
+        if state.status is TaskStatus.FAILED_FINAL or event.get("terminal"):
+            await asyncio.to_thread(
+                update_task,
+                state.task_id,
+                "failed_final",
+                error=_task_error_text(state, event),
             )
     elif etype == "final":
         result = event.get("result") or {}
@@ -453,6 +572,7 @@ async def get_task_trace(task_id: str, user: UserCtx = Depends(get_current_user)
         "task_id": task_id,
         "status": row.get("status"),
         "engine": row.get("engine"),
+        "error": row.get("error"),
         "query": row.get("query"),
         "created_at": row.get("created_at"),
         "completed_at": row.get("completed_at"),
@@ -496,14 +616,35 @@ async def export_task(
 
 @router.get("/{task_id}")
 async def get_task(task_id: str, user: UserCtx = Depends(get_current_user)) -> dict:
-    """从 Bus 事件回放拼装任务详情（登录必须 + 属主隔离）。"""
+    """任务详情（前端轮询）：返回 status/error/final_result/engine。
+
+    Bus 回放优先；Bus 不存在（进程重启/事件已清扫）时回退 MySQL，
+    保证轮询始终能看到终态与 error 文案。
+    """
     if not bus.exists(task_id):
-        raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        try:
+            row = await asyncio.to_thread(mysql_get_task_row, task_id)
+        except Exception as exc:
+            logger.warning("任务详情 MySQL 回退查询失败 task=%s: %s", task_id, exc)
+            row = None
+        if row is None or (
+            row.get("user_id") is not None and row["user_id"] != user.user_id
+        ):
+            raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")
+        return {
+            "task_id": task_id,
+            "status": row.get("status"),
+            "engine": row.get("engine"),
+            "final_result": row.get("final_result"),
+            "error": row.get("error"),
+            "steps": [],
+        }
     ensure_task_visible(task_id, user)
 
     status = "created"
     engine: str | None = None
     final_result: dict | None = None
+    error: str | None = None
     steps: list[dict] = []
     for event in bus.snapshot(task_id):
         etype = event.get("type")
@@ -515,21 +656,27 @@ async def get_task(task_id: str, user: UserCtx = Depends(get_current_user)) -> d
                     "agent_name": event.get("agent"),
                     "status": event.get("status"),
                     "latency_ms": event.get("latency_ms"),
+                    "error": event.get("error"),
+                    "reason": event.get("reason"),
                 }
             )
         elif etype == "error":
-            # 只在终态 error 时标记失败；重试中的 error 不改变状态
+            # 保留最新 error 文案；terminal 才改 status（重试中的 error 不改状态）
+            if event.get("message"):
+                error = event.get("message")
             if event.get("terminal"):
                 status = "failed_final"
         elif etype == "final":
             final_result = event.get("result")
             status = "completed"
             engine = (final_result or {}).get("engine")
+            error = None
     return {
         "task_id": task_id,
         "status": status,
         "engine": engine,
         "final_result": final_result,
+        "error": error,
         "steps": steps,
     }
 

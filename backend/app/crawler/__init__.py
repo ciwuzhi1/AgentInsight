@@ -8,7 +8,7 @@ from app.crawler.parser import (
     parse_detail,
     parse_listing,
 )
-from app.crawler.storage import upsert_jobs
+from app.crawler.storage import upsert_jobs, upsert_one
 
 __all__ = [
     "BASE_URL",
@@ -20,4 +20,5 @@ __all__ = [
     "parse_detail",
     "extract_skills",
     "upsert_jobs",
+    "upsert_one",
 ]

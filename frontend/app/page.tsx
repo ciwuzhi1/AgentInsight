@@ -34,7 +34,21 @@ export default function Home() {
   const reconnectCountRef = useRef<number>(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeTaskIdRef = useRef<string | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollCountRef = useRef(0);
   const maxReconnects = 3;
+
+  function notifyTaskStatus(running: boolean, kind: typeof taskKind) {
+    window.dispatchEvent(
+      new CustomEvent("agentinsight:task-status", {
+        detail: { running, kind },
+      })
+    );
+  }
+
+  useEffect(() => {
+    notifyTaskStatus(running, taskKind);
+  }, [running, taskKind]);
 
   function pushMatchLog(text: string, level?: LogEntry["level"]) {
     setMatchLogs((prev) => [...prev.slice(-80), makeLog(text, level)]);
@@ -61,6 +75,7 @@ export default function Home() {
     return () => {
       esRef.current?.close();
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
     };
   }, []);
 
@@ -71,15 +86,76 @@ export default function Home() {
     }
   }
 
+  function stopPolling() {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+    pollCountRef.current = 0;
+  }
+
   function closeEventStream() {
     clearReconnectTimer();
+    stopPolling();
     esRef.current?.close();
     esRef.current = null;
     activeTaskIdRef.current = null;
   }
 
+  /** SSE 失败兜底：ensureAuthToken + Bearer 轮询 GET /api/tasks/{id}，用 status/final_result/error 回填 */
+  async function pollTaskStatus(taskId: string) {
+    if (activeTaskIdRef.current !== taskId) return;
+    if (pollCountRef.current >= 24) {
+      setAskError("任务状态查询超时，请刷新或打开历史记录");
+      setRunning(false);
+      setOkMsg(null);
+      return;
+    }
+    pollCountRef.current += 1;
+    try {
+      const token = await ensureAuthToken();
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(`${API_BASE}/api/tasks/${taskId}`, { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as {
+        status?: string;
+        error?: string | null;
+        engine?: string | null;
+        final_result?: FinalResult | MatchFinal | null;
+      };
+      if (activeTaskIdRef.current !== taskId) return;
+      const st = body.status ?? "";
+      if (st === "completed" || st.startsWith("failed")) {
+        if (body.final_result) setFinal(body.final_result);
+        if (st === "completed") {
+          setOkMsg("后台任务已完成（SSE 中断后已通过查询同步结果）");
+          setAskError(null);
+        } else {
+          setAskError(body.error || "任务执行失败");
+        }
+        setRunning(false);
+        stopPolling();
+        return;
+      }
+      if (st === "running" || st === "routing" || st === "created") {
+        setOkMsg("事件流中断，后台仍在执行（执行中），已转为状态轮询…");
+        pollTimerRef.current = setTimeout(() => void pollTaskStatus(taskId), 5000);
+        return;
+      }
+      setAskError(body.error || `任务状态：${st || "未知"}`);
+      setRunning(false);
+      stopPolling();
+    } catch (e) {
+      if (activeTaskIdRef.current !== taskId) return;
+      pollTimerRef.current = setTimeout(() => void pollTaskStatus(taskId), 5000);
+      void e;
+    }
+  }
+
   function subscribe(taskId: string, opts?: { preserve?: boolean }) {
     clearReconnectTimer();
+    stopPolling();
     esRef.current?.close();
     activeTaskIdRef.current = taskId;
     void ensureAuthToken().then((token) => {
@@ -112,6 +188,7 @@ export default function Home() {
       if (data.type === "final") {
         setFinal(data.result as FinalResult | MatchFinal);
         es.close();
+        stopPolling();
         setRunning(false);
         setOkMsg(null);
         return;
@@ -138,6 +215,7 @@ export default function Home() {
 
     es.addEventListener("done", () => {
       es.close();
+      stopPolling();
       setRunning(false);
       setOkMsg(null);
     });
@@ -158,9 +236,12 @@ export default function Home() {
         }, delay);
         return;
       }
-      setRunning(false);
-      setOkMsg(null);
-      setAskError("事件流连接中断（重连次数已用尽，请刷新页面）");
+      setRunning(true);
+      setOkMsg("事件流重连耗尽，转为查询任务状态…");
+      setAskError(null);
+      stopPolling();
+      pollCountRef.current = 0;
+      void pollTaskStatus(taskId);
     };
   }
 
@@ -356,6 +437,24 @@ export default function Home() {
                 <ErrorBar message={askError} retrying={retrying} />
               )}
               {okMsg && <OkBar message={okMsg} />}
+              {/* 分析页空状态：无 dataset 时 CTA 直达数据集页 */}
+              {!dataset && !running && events.length === 0 && !final && (
+                <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-6 py-10 text-center">
+                  <p className="text-sm font-medium text-[var(--text-primary)]">
+                    尚未上传数据集
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--text-muted)]">
+                    上传 CSV 后即可提问，Agent 将翻译为 SQL 并实时展示执行过程
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setView("dataset")}
+                    className="btn-primary mt-4 px-4 py-1.5 text-xs"
+                  >
+                    去「数据集」页上传 →
+                  </button>
+                </section>
+              )}
               {(taskKind === "analysis" || !taskKind) && (
                 <TimelinePanel events={events} running={running && taskKind === "analysis"} />
               )}

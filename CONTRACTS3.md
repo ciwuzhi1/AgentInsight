@@ -1,6 +1,7 @@
 # CONTRACTS3 — P2 Redis 链路C / P3 评测体系 / P4 用户与安全 增量契约
 
-> 基础仍是 CONTRACTS.md + CONTRACTS2.md，冲突以本文件为准。
+> **以代码为准**：本文档与后端实现不一致时，以代码为准（鉴权范围以各 `app/api/*.py` 的 `Depends(get_current_user)` 为准）；文档仅作约定与导读。
+> 基础仍是 CONTRACTS.md + CONTRACTS2.md，冲突以本文件为准；与实现冲突时以代码为准。
 > 波次与归属：Wave1 = A-P2(Redis后端) ‖ A-P3(评测)；Wave2 = A-P4(auth后端) ‖ A-P2F(前端HIT徽标)；Wave3 = A-P4F(登录页+token封装)。**同波禁改对方文件**；跨波可接力但必须保留前一波行为。
 
 ## 1. P2 — Redis 链路C（A-P2 专属 Wave1）
@@ -95,7 +96,7 @@ users(id VARCHAR(36) PRIMARY KEY, username VARCHAR(64) NOT NULL UNIQUE, password
 
 ### 3.3 api/auth.py（A-P4）
 `POST /api/auth/register {username,password}`（用户名 3~32 字符唯一，密码 ≥6；重名 409）→ 201 {user_id,username}；`POST /api/auth/login` → {token,user_id,username}（401 用户名或密码错误）；`GET /api/auth/me`（Bearer）。
-**依赖 `get_current_user`**（fastapi Depends）：解析 Authorization: Bearer → decode_token → UserCtx{user_id,username}；缺失/无效 → 401。**应用范围**：POST/GET /api/datasets、/api/resumes、/api/matches、/api/tasks（含 SSE/详情）**必须登录**；/api/auth/*、/api/health*、/api/crawler/*、/api/settings、/api/models、/api/evaluations/* 本轮保持开放（写进 README 说明）。
+**依赖 `get_current_user`**（fastapi Depends）：解析 Authorization: Bearer → decode_token → UserCtx{user_id,username}；缺失/无效 → 401。**应用范围（以代码 `Depends(get_current_user)` 为准）**：POST/GET /api/datasets、/api/resumes、/api/matches、/api/tasks（含 SSE/详情）以及 **/api/settings、/api/models、/api/evaluations/*** **必须登录**；仅 /api/auth/*、/api/health*、/api/crawler/* 保持开放。（本轮规划原写 settings/models/evaluations 开放，实现已收紧，以代码为准。）
 
 ### 3.4 数据隔离（A-P4）
 - 写路径：insert_dataset/save_resume/insert_task/insert_match 增加 user_id 参数并落库。

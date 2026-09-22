@@ -69,6 +69,7 @@ function ErrorBar({ message }: { message: string }) {
 function OkBar({ message }: { message: string }) {
   return (
     <div
+      role="status"
       className="mt-3 rounded-lg border px-4 py-3 text-sm"
       style={{
         borderColor: "var(--status-ok-border)",
@@ -185,10 +186,10 @@ export default function SettingsPage() {
     temperature: "0.3",
   });
 
-  async function loadAll() {
+  async function loadAll(opts?: { preserveOk?: boolean }) {
     setBusy(true);
     setError(null);
-    setOkMsg(null);
+    if (!opts?.preserveOk) setOkMsg(null);
     try {
       // 先确保 Bearer（登录页已移除，自动注册/登录）
       await ensureAuthToken();
@@ -276,9 +277,10 @@ export default function SettingsPage() {
         }),
       });
       if (!res.ok) throw await readError(res);
+      const addedName = form.name.trim();
       resetForm();
-      setOkMsg("模型配置已添加，已刷新列表");
-      await loadAll();
+      setOkMsg(`模型「${addedName}」已添加，列表已刷新`);
+      await loadAll({ preserveOk: true });
     } catch (e) {
       setError(errText(e));
     } finally {
@@ -297,7 +299,7 @@ export default function SettingsPage() {
       });
       if (!res.ok) throw await readError(res);
       setOkMsg("已切换激活模型");
-      await loadAll();
+      await loadAll({ preserveOk: true });
     } catch (e) {
       setError(errText(e));
     } finally {
@@ -344,7 +346,7 @@ export default function SettingsPage() {
       });
       if (!res.ok) throw await readError(res);
       setOkMsg("模型配置已删除");
-      await loadAll();
+      await loadAll({ preserveOk: true });
     } catch (e) {
       setError(errText(e));
     } finally {
@@ -371,7 +373,7 @@ export default function SettingsPage() {
       if (!res.ok) throw await readError(res);
       setOkMsg(`已保存「${meta.label}」`);
       setDraft((prev) => ({ ...prev, [meta.key]: "" }));
-      await loadAll();
+      await loadAll({ preserveOk: true });
     } catch (e) {
       setError(errText(e));
     } finally {
@@ -418,9 +420,9 @@ export default function SettingsPage() {
       <div className="space-y-8">
         {(busy || error || okMsg) && (
           <div>
-            {busy && models.length === 0 && !error && (
+            {busy && !error && !okMsg && (
               <p className="animate-pulse py-6 text-center text-sm text-[var(--text-muted)]">
-                正在加载设置…
+                {models.length === 0 ? "正在加载设置…" : "正在处理…"}
               </p>
             )}
             {error && <ErrorBar message={error} />}
@@ -480,6 +482,7 @@ export default function SettingsPage() {
                   )}
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
+                      type="button"
                       onClick={() => activateModel(m.id)}
                       disabled={busy || m.is_active}
                       className="btn-ghost rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
@@ -492,8 +495,9 @@ export default function SettingsPage() {
                       激活
                     </button>
                     <button
+                      type="button"
                       onClick={() => testModel(m.id)}
-                      disabled={testingId === m.id}
+                      disabled={testingId !== null || busy}
                       className="btn-ghost rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
                       style={{
                         borderColor: "var(--accent-sky-border)",
@@ -504,6 +508,7 @@ export default function SettingsPage() {
                       {testingId === m.id ? "测试中…" : "测试连通"}
                     </button>
                     <button
+                      type="button"
                       onClick={() => deleteModel(m.id)}
                       disabled={busy}
                       className="btn-ghost rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40"
@@ -533,11 +538,13 @@ export default function SettingsPage() {
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="配置名称，如：DeepSeek 主力"
+              aria-label="名称"
               className={inputCls}
             />
             <select
               value={form.provider}
               onChange={(e) => setForm({ ...form, provider: e.target.value })}
+              aria-label="Provider"
               className={inputCls}
             >
               <option value="openai_compatible">openai_compatible</option>
@@ -550,6 +557,7 @@ export default function SettingsPage() {
               value={form.base_url}
               onChange={(e) => setForm({ ...form, base_url: e.target.value })}
               placeholder="Base URL，如：https://api.deepseek.com/v1"
+              aria-label="Base URL"
               className={inputCls}
             />
             <input
@@ -557,12 +565,14 @@ export default function SettingsPage() {
               value={form.api_key}
               onChange={(e) => setForm({ ...form, api_key: e.target.value })}
               placeholder="API Key"
+              aria-label="API Key"
               className={inputCls}
             />
             <input
               value={form.model}
               onChange={(e) => setForm({ ...form, model: e.target.value })}
               placeholder="模型名，如：deepseek-chat"
+              aria-label="模型名"
               className={inputCls}
             />
             <input
@@ -573,13 +583,15 @@ export default function SettingsPage() {
               value={form.temperature}
               onChange={(e) => setForm({ ...form, temperature: e.target.value })}
               placeholder="temperature"
+              aria-label="temperature"
               className={inputCls}
             />
           </div>
           <button
+            type="button"
             onClick={addModel}
             disabled={busy}
-            className="btn-primary mt-4 px-5 py-2 text-sm"
+            className="btn-primary mt-4 px-5 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
             添加模型
           </button>
@@ -607,6 +619,7 @@ export default function SettingsPage() {
                     onChange={(e) =>
                       setDraft((prev) => ({ ...prev, [meta.key]: e.target.value }))
                     }
+                    aria-label={meta.label}
                     className={inputCls}
                   >
                     {meta.options?.map((o) => (
@@ -629,10 +642,12 @@ export default function SettingsPage() {
                           : "未配置"
                         : settings[meta.key] || ""
                     }
+                    aria-label={meta.label}
                     className={`${inputCls} w-56`}
                   />
                 )}
                 <button
+                  type="button"
                   onClick={() => saveSetting(meta)}
                   disabled={busy}
                   className="btn-ghost rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40"

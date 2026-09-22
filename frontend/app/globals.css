@@ -209,37 +209,6 @@ html:not([data-theme]) {
   }
 }
 
-/* 消息进入（供后续 ChatArea 使用） */
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-in-up {
-  animation: fadeInUp 0.3s ease;
-}
-
-/* 加载中脉冲 */
-@keyframes glassPulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.55;
-  }
-}
-
-.animate-glass-pulse {
-  animation: glassPulse 1.4s ease-in-out infinite;
-}
-
 /* 按钮悬停：亮度提升 + 轻微放大 */
 .btn-glow {
   transition: filter 0.15s ease, transform 0.15s ease;
@@ -293,36 +262,6 @@ html:not([data-theme]) {
 }
 
 /* —— App Shell 工具类 —— */
-
-/* 顶栏毛玻璃 */
-.topbar-glass {
-  height: var(--topbar-h);
-  background: var(--bg-glass-strong);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--border-glass);
-}
-
-/* 图标栏按钮 */
-.icon-rail-btn {
-  width: 40px;
-  height: 40px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 10px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.icon-rail-btn:hover {
-  background: color-mix(in srgb, var(--primary) 12%, transparent);
-  color: var(--text-primary);
-}
-.icon-rail-btn[data-active="true"] {
-  background: color-mix(in srgb, var(--primary) 18%, transparent);
-  color: var(--primary-light);
-}
 
 /* 折叠区域：grid-template-rows 避免 max-height 跳动 */
 .collapse-grid {

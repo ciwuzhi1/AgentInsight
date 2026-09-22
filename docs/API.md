@@ -1,5 +1,7 @@
 # AgentInsight V3.0 API 参考文档
 
+> **以代码为准**：本文档与后端实现（`backend/app/api/**`）不一致时，以代码为准；文档仅作参考。鉴权范围以各路由的 `Depends(get_current_user)` 为准，请求/响应字段以对应 Pydantic 模型与 handler 返回值为准。
+>
 > **版本**：V3.0  
 > **基础路径**：`http://localhost:8100`  
 > **Swagger UI**：`/docs`  
@@ -552,6 +554,8 @@ Authorization: Bearer <token>
 
 **执行链路**：`resume ∥ job → match → validator → report`（resume/job 并行）
 
+> 匹配任务的 `final_result` 含顶层 `experience_years`（与 `resume.experience_years` 同源，取自简历 profile），字段定义见 CONTRACTS2 §2.1。
+
 **错误**：`400` job_ids 为空/岗位不存在 / `401` / `404` 简历不存在或无权限 / `409` 幂等锁 / `429` 限流
 
 ---
@@ -767,7 +771,7 @@ POST /api/crawler/run
 {
   "url": null,
   "pages": 1,
-  "max_items": 50
+  "max_items": 10
 }
 ```
 
@@ -775,14 +779,14 @@ POST /api/crawler/run
 |------|------|------|------|
 | url | null（演示站） | - | 目标列表页 URL |
 | pages | 1 | 1~20 | 抓取页数 |
-| max_items | 50 | 1~500 | 最大条目数 |
+| max_items | **10** | 1~50 | 最大入库条目数 |
 
 **响应 200**：
 
 ```json
 {
-  "inserted": 10,
-  "updated": 0,
+  "inserted": 8,
+  "skipped": 1,
   "items": [
     {
       "title": "Python 开发工程师",
@@ -790,13 +794,23 @@ POST /api/crawler/run
       "location": "北京",
       "skills": ["Python", "Django", "PostgreSQL"]
     }
+  ],
+  "failed_urls": [
+    {"url": "https://.../jobs/3", "error": "timeout"}
   ]
 }
 ```
 
-> 每次请求间隔 0.5s（礼貌性限速）。
+| 字段 | 说明 |
+|------|------|
+| inserted | 新入库条数 |
+| skipped | 已存在（upsert 去重）跳过条数 |
+| items | 本次成功解析并入库的岗位摘要（title/company/location/skills） |
+| failed_urls | 失败的 listing/detail/upsert 条目 `[{url, error}]`；部分失败仍返回 200 |
 
-**错误**：`502` 抓取失败 / `503` MySQL 不可用
+> 每次请求间隔 0.5s（礼貌性限速）。逐条 upsert（成功一条写一条）；单条失败记入 `failed_urls` 并继续，不中断整次。
+
+**错误**：`502` listing 首页整页失败 / `503` MySQL 不可用
 
 ---
 

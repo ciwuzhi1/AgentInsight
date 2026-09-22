@@ -1,16 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useWorkspace, type WorkspaceView } from "./workspace-context";
+import { JOB_PROMPT_PRESETS } from "@/components/shared";
 
-/* 快捷提示词：与主页 JOB_PROMPT_PRESETS 对齐 */
-const QUICK_PROMPTS = [
-  "JD 中需求最多的技能 Top 10 是什么？",
-  "统计各城市的岗位数量和平均薪资",
-  "要求 Python 的岗位里哪个城市薪资最高？",
-  "各薪资区间的岗位数量分布",
-  "对比北京和上海的技能要求差异",
-];
+/* 快捷提示词：与 ChatPanel 同源（shared 单一来源） */
+const QUICK_PROMPTS = JOB_PROMPT_PRESETS.slice(0, 5);
 
 /* —— 线性 SVG 图标 —— */
 function IconDataset() {
@@ -89,7 +84,6 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export type SidebarProps = {
-  onSelectPrompt?: (prompt: string) => void;
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
   /** 移动端抽屉是否打开 */
@@ -102,7 +96,6 @@ export type SidebarProps = {
  * md 以下为 fixed 抽屉 + 遮罩。
  */
 export default function Sidebar({
-  onSelectPrompt,
   collapsed: controlledCollapsed,
   onCollapsedChange,
   mobileOpen = false,
@@ -111,6 +104,16 @@ export default function Sidebar({
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const collapsed = controlledCollapsed ?? internalCollapsed;
   const { view, setView } = useWorkspace();
+  const [taskRunning, setTaskRunning] = useState(false);
+
+  useEffect(() => {
+    function onStatus(e: Event) {
+      const d = (e as CustomEvent<{ running?: boolean }>).detail;
+      setTaskRunning(Boolean(d?.running));
+    }
+    window.addEventListener("agentinsight:task-status", onStatus);
+    return () => window.removeEventListener("agentinsight:task-status", onStatus);
+  }, []);
 
   function toggleCollapse() {
     const next = !collapsed;
@@ -123,7 +126,6 @@ export default function Sidebar({
   }
 
   function selectPrompt(q: string) {
-    onSelectPrompt?.(q);
     setView("analysis");
     window.dispatchEvent(
       new CustomEvent("agentinsight:quick-prompt", { detail: q })
@@ -190,6 +192,10 @@ export default function Sidebar({
           <ul className="space-y-0.5">
             {NAV_ITEMS.map((item) => {
               const active = view === item.id;
+              const analysisRunning = taskRunning && item.id === "analysis";
+              const label = analysisRunning
+                ? `${item.label}（任务运行中）`
+                : item.label;
               return (
                 <li key={item.id}>
                   <button
@@ -205,18 +211,24 @@ export default function Sidebar({
                         ? "color-mix(in srgb, var(--primary) 14%, transparent)"
                         : undefined,
                     }}
-                    title={isCollapsed ? item.label : undefined}
-                    aria-label={item.label}
+                    title={isCollapsed || analysisRunning ? label : undefined}
+                    aria-label={label}
                     aria-current={active ? "page" : undefined}
                   >
                     <span
-                      className="flex h-5 w-5 shrink-0 items-center justify-center"
+                      className="relative flex h-5 w-5 shrink-0 items-center justify-center"
                       style={{
                         color: active ? "var(--primary-light)" : "var(--text-secondary)",
                       }}
-                      aria-hidden="true"
                     >
-                      {item.icon}
+                      <span aria-hidden="true">{item.icon}</span>
+                      {analysisRunning && (
+                        <span
+                          className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 animate-pulse rounded-full"
+                          style={{ background: "var(--status-running)" }}
+                          aria-hidden="true"
+                        />
+                      )}
                     </span>
                     {!isCollapsed && (
                       <span className="sidebar-body truncate">{item.label}</span>

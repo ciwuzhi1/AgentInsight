@@ -1,5 +1,7 @@
 # CONTRACTS2 — 阶段2 增量契约（在 CONTRACTS.md 基础上追加，冲突时以本文件为准）
 
+> **以代码为准**：本文档与后端实现不一致时，以代码为准（如 `backend/app/agent_runtime/executor.py`、`agents/match_agent.py` 等）；文档仅作约定与导读。
+>
 > 波次与文件归属：Wave1 = A1(runtime)+A2(健壮性)；Wave2 = A3(业务Agent)+A4(设置中心/持久化)；Wave3 = A5(前端)+A6(测试)。**同波内禁止改对方文件**；跨波可接力（Wave2 可改 Wave1 产出的 llm.py/main.py）。
 
 ## 1. 计划结构与执行（A1 专属：`agent_runtime/{planner,executor,state,supervisor}.py`）
@@ -62,7 +64,8 @@ class WorkflowExecutor:
  "dimensions":{"skill":78,"project":70,"experience":80,"education":100,"engineering":60},
  "skill_gap":["Docker","Kubernetes"],
  "interpretation":"...",           // LLM 解读或模板文案
- "interpretation_source":"llm|mock"}
+ "interpretation_source":"llm|mock",
+ "experience_years":3}             // 顶层冗余；与 resume.experience_years 同源（profile），便于直接读取
 ```
 
 ## 3. 三个业务 Agent（A3 专属：`agents/{resume_agent,job_agent,match_agent}.py`、`tools/mineru_client.py`；validator_agent 也在 A3）

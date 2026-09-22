@@ -4,6 +4,22 @@
 
 上传一份 CSV，用中文提问，Agent 自动分析数据、生成 SQL、执行、校验并画图；上传简历 + 勾选岗位，resume∥job **并行**的多智能体工作流输出匹配评分与技能缺口。全过程通过 SSE 实时推送执行时间线（含 plan/并行/retry 事件）。所有数据走 DuckDB 内存查询，20 万行以内即席分析轻松应对。
 
+## 目录
+
+- [界面预览](#界面预览)
+- [V3.0 变更](#v30-变更)
+- [框架决策对照](#框架决策对照为什么不用-langgraph--deepagents)
+- [架构图](#架构图)
+- [环境要求](#环境要求)
+- [五步启动（Quick Start）](#五步启动quick-start)
+- [两条 Demo](#两条-demo)
+- [Benchmark](#benchmark)
+- [auth（登录/注册/数据隔离）](#auth登录注册数据隔离)
+- [.env 变量说明](#env-变量说明)
+- [常见问题](#常见问题)
+- [文档导航](#文档导航)
+- [企业级工程化（E1 硬化批次）](#企业级工程化e1-硬化批次)
+
 ## 界面预览
 
 MiMo 风格 App Shell：可折叠侧栏（数据集 / 数据分析 / 简历匹配 / 岗位爬虫）+ 深蓝 / 浅色暖黄双主题。
@@ -20,7 +36,7 @@ MiMo 风格 App Shell：可折叠侧栏（数据集 / 数据分析 / 简历匹�
 
 | 变更 | 说明 |
 |------|------|
-| **移除 Spark** | 专注 DuckDB 单机分析，降低部署复杂度（无需 Docker/Spark 镜像） |
+| **移除 Spark 依赖** | 专注 DuckDB 单机分析，降低部署复杂度（无需 Docker/Spark 镜像） |
 | **新增 Context Engineering** | Token 预算控制（4000/1000/8000）+ 上下文压缩（简历/JD/Schema/结果） |
 | **新增 Report Synthesizer** | 模板化汇总报告 + 可选 LLM 润色（`report_llm_enabled` 开关） |
 | **新增 Few-shot 检索** | 历史成功 SQL 作为 LLM 示例，TF-IDF 相似度检索 top-3 |
@@ -100,7 +116,7 @@ MiMo 风格 App Shell：可折叠侧栏（数据集 / 数据分析 / 简历匹�
 
 Python 依赖见 `backend/requirements.txt`；前端依赖见 `frontend/package.json`。
 
-## 五步启动
+## 五步启动（Quick Start）
 
 ```bash
 # ① 生成 demo 数据：1 万行销售明细
@@ -142,7 +158,7 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 
 ## Benchmark
 
-> **V3.0 待实测**。以下为 V2.x 参考基线（移除 Spark 后 DuckDB 链路应保持同等或更优性能）。
+> **V3.0 待实测**。以下为 V2.x 参考基线（移除 Spark 依赖后 DuckDB 链路应保持同等或更优性能）。
 
 | 场景 | 数据规模 | 引擎 | 端到端耗时 | 备注 |
 |---|---|---|---|---|
@@ -173,7 +189,7 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 | 路由准确率（10 case） | 100% | 100% |
 | 异常 graceful 率（10 case） | 100% | 90% |
 
-## 链路C Redis 缓存（同一简历 + 同 2 个 JD 连跑两次）
+### 链路 C：Redis 缓存（同一简历 + 同 2 个 JD 连跑两次）
 
 | 运行 | 端到端 | cache 事件 | LLM/解析调用 |
 |---|---|---|---|
@@ -184,7 +200,7 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 ## auth（登录/注册/数据隔离）
 
 - 打开 `http://localhost:3100` 未登录自动跳 `/login`（注册/登录双模式，token 存 localStorage）
-- 全局 fetch 自动注入 `Authorization: Bearer`，401 自动跳回登录页
+- 全局 fetch 自动注入 `Authorization: Bearer`，401 自动跳回 `/login`
 - 无 token 访问受保护接口 → 401；A 用户资源，B 用户访问 → 404（不泄露存在性）
 - `POST /api/auth/register` → `POST /api/auth/login` 得 7 天 JWT
 - 存量数据（user_id=NULL）为公共遗留，登录用户均可见
@@ -208,14 +224,14 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 | `DATA_DIR` / `UPLOAD_DIR` | 数据与上传目录 | `<repo>/data` 与 `<repo>/data/uploads` |
 | `APP_SECRET` | JWT 签名密钥；缺失时自动生成写回 .env | 自动生成 |
 
-> **V3.0 已移除**：`SPARK_ROW_THRESHOLD` / `SPARK_IMAGE` 等 Spark 相关变量。
+> **V3.0 已移除**：`SPARK_ROW_THRESHOLD` / `SPARK_IMAGE` 等 Spark 依赖相关变量。
 
 ## 常见问题
 
 **8GB 内存可行吗？**
-完全可行。V3.0 移除 Spark 后内存占用大幅降低。MySQL、后端、前端都是轻量常驻；DuckDB 查询是流式内存计算，10 万行级 CSV 占用很小。这是 V3.0 的核心优化之一——不再需要为 Spark 容器预留 3-4GB。
+完全可行。V3.0 移除 Spark 依赖后内存占用大幅降低。MySQL、后端、前端都是轻量常驻；DuckDB 查询是流式内存计算，10 万行级 CSV 占用很小。这是 V3.0 的核心优化之一——不再需要为 Spark 容器预留 3-4GB。
 
-**为什么 V3.0 移除 Spark？**
+**为什么 V3.0 移除 Spark 依赖？**
 三个原因：① 部署复杂度——Spark 需要 Docker + 镜像拉取 + JVM 启动，对 8GB 机器不友好；② 维护成本——双引擎路由增加代码复杂度，DuckDB 在 20 万行内表现已足够；③ 聚焦核心价值——项目核心是 Multi-Agent Runtime 和 Context Engineering，不是大数据处理引擎。
 
 **为什么不用 LangChain？**
@@ -227,12 +243,19 @@ LLM 配置说明：在 `.env` 里填 `LLM_API_KEY`（DeepSeek / GLM 等 OpenAI �
 **如何启用 LLM 润色报告？**
 在设置中心 PUT `{"key": "report_llm_enabled", "value": "true"}`，或在 `/settings` 页面开启。默认使用模板化汇总（纯文本拼接，无 LLM 调用）。
 
-## 更多文档
+## 文档导航
 
-- API 接口参考：见 [docs/API.md](docs/API.md)
-- 系统设计与扩展指南：见 [ARCHITECTURE.md](ARCHITECTURE.md)
-- V3.0 完整开发设计文档：见 [docs/AgentInsight_V3.0_开发设计文档.md](docs/AgentInsight_V3.0_开发设计文档.md)
-- 前端实现讲解：见 [frontend/README.md](frontend/README.md)
+| 文档 | 说明 |
+|------|------|
+| [docs/架构说明.md](docs/架构说明.md) | 架构说明：模块划分、数据流、扩展点 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 系统设计与扩展指南 |
+| [docs/API.md](docs/API.md) | API 接口参考 |
+| [docs/测试说明.md](docs/测试说明.md) | 后端测试清单与运行方式 |
+| [docs/AgentInsight_V3.0_开发设计文档.md](docs/AgentInsight_V3.0_开发设计文档.md) | V3.0 完整开发设计（含测试设计章节） |
+| [frontend/README.md](frontend/README.md) | 前端实现讲解 |
+| 测试说明 | 单测/集成：`cd backend && python -m pytest tests/unit -q` |
+
+> 本地优化备忘（`docs/优化备忘.md`）为内部工作笔记，已 gitignore，不对外链接。
 
 ## 企业级工程化（E1 硬化批次）
 

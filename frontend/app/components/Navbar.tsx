@@ -99,7 +99,7 @@ export default function Navbar({
     };
   }, []);
 
-  // 点击菜单外部关闭
+  // 点击菜单外部关闭 / Escape 关闭
   useEffect(() => {
     if (!avatarOpen) return;
     function handleClickOutside(e: MouseEvent) {
@@ -107,8 +107,15 @@ export default function Navbar({
         setAvatarOpen(false);
       }
     }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setAvatarOpen(false);
+    }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [avatarOpen]);
 
   function logout() {

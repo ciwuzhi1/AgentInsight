@@ -1,5 +1,7 @@
 # ARCHITECTURE — AgentInsight 系统设计与扩展指南（V3.0）
 
+> 图解版见 [`docs/架构说明.md`](docs/架构说明.md)（结构图 + 时序图 + 近期能力表；本文侧重实现细节与扩展指南，避免两处重复维护长文）。
+>
 > 本文描述的是 **V3.0 已实现** 的架构。移除 Spark，新增 Context Engineering、Report Synthesizer、Few-shot 检索、动态复杂度规划。
 
 ## 1. 一句话架构

@@ -1,6 +1,8 @@
 # AgentInsight MVP 契约文档（并行开发统一标准）
 
-> 本文件是所有并行子代理的唯一契约。先读本文件再动手。与你负责模块冲突时，以本文件为准；发现契约缺陷不要私自改接口，在报告里提出。
+> **以代码为准**：本文档与后端实现（`backend/app/**`）不一致时，以代码为准；文档仅作约定与导读。接口字段、默认值、鉴权范围等以对应模块源码为最终事实来源。
+>
+> 本文件是所有并行子代理的唯一契约。先读本文件再动手。与你负责模块冲突时，以本文件为准；发现契约缺陷不要私自改接口，在报告里提出。与实现不一致处按上文「以代码为准」处理。
 
 ## 0. 项目基本信息
 
@@ -241,7 +243,7 @@ CODE-4 负责 SSE 端点（用 `asyncio.Queue` 桥接 agent 的 emit）；agent 
 | GET /api/health | - | `{"status":"ok"}` |
 | GET /api/health/mysql | - | `{"mysql":"up","latency_ms":n}` 或 503 |
 | GET /api/health/redis | - | `{"redis":"up"/"degraded"}`（Redis 挂了返回 degraded 而非 500，体现文档降级原则） |
-| POST /api/crawler/run | `{"url"?, "pages"?:1, "max_items"?:50}` | `{"inserted":n,"skipped":m,"items":[{title,company,location,skills[]}]}` |
+| POST /api/crawler/run | `{"url"?, "pages"?:1, "max_items"?:10}`（max_items 范围 1~50） | `{"inserted":n,"skipped":m,"items":[{title,company,location,skills[]}],"failed_urls":[{url,error}]}` |
 | GET /api/crawler/jobs | `?limit=20` | `{"count":n,"items":[jobs 表行]}` |
 | POST /api/crawler/export | - | `{"path":"data/large/jd_crawled.csv","rows":n}`（jobs 表导出 CSV 供 Spark job 用） |
 

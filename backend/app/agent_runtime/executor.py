@@ -38,6 +38,92 @@ def _error_code(exc: Exception) -> str:
     return "ENGINE_ERROR"
 
 
+def _classify_code(error_msg: str | None, exc: Exception | None) -> str:
+    """失败事件 code：Timeout / LLM / SQL 等，异常类优先，其次文案启发。"""
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        return "TIMEOUT"
+    if exc is not None:
+        return _error_code(exc)
+    msg = error_msg or ""
+    if "LLM" in msg:
+        return "LLM_ERROR"
+    if "超时" in msg:
+        return "TIMEOUT"
+    if "SQL" in msg or "Guard" in msg:
+        return "SQL_ERROR"
+    return "ENGINE_ERROR"
+
+
+def _format_step_error(name: str, raw: str | None, exc: Exception | None) -> str:
+    """步骤错误中文可读化：Timeout/LLM 单独措辞；保证非空且含 agent 名。
+
+    asyncio.TimeoutError / TimeoutError 的 str() 常为空，必须单独生成文案，
+    否则 failed_final 落库的 tasks.error 为空串，前端无法展示。
+    """
+    raw = (raw or "").strip()
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        return f"{name} 执行超时（单步超过 {_STEP_TIMEOUT_S} 秒）"
+    if exc is not None and "Timeout" in type(exc).__name__:
+        return f"{name} 执行超时（单步超过 {_STEP_TIMEOUT_S} 秒）"
+    if exc is not None and "LLM" in type(exc).__name__:
+        reason = raw or str(exc).strip() or "未知原因"
+        low = reason.lower()
+        if "timeout" in low or "timed out" in low or "超时" in reason:
+            return f"{name} LLM 调用超时：{reason}"
+        if reason.startswith("LLM"):
+            return f"{name} {reason}"
+        return f"{name} LLM 调用失败：{reason}"
+    reason = raw or (str(exc).strip() if exc is not None else "") or "未知错误"
+    return f"{name}：{reason}"
+
+
+def _error_reason(error_msg: str | None, exc: Exception | None) -> str:
+    """步骤失败 reason 摘要（写入 task_steps.detail.reason，便于前端/日志归类）。"""
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+        return "timeout"
+    if exc is not None and "Timeout" in type(exc).__name__:
+        return "timeout"
+    if exc is not None and "LLM" in type(exc).__name__:
+        msg = (error_msg or "") + " " + (str(exc) or "")
+        low = msg.lower()
+        if "timeout" in low or "timed out" in low or "超时" in msg:
+            return "llm_timeout"
+        return "llm_error"
+    code = _classify_code(error_msg, exc)
+    return {
+        "TIMEOUT": "timeout",
+        "LLM_ERROR": "llm_error",
+        "SQL_ERROR": "sql_error",
+        "VALIDATION_ERROR": "validation_error",
+    }.get(code, "step_error")
+
+
+def force_fail_final(state: TaskState) -> None:
+    """任意非终态强制进入 failed_final（走合法迁移链；并发下幂等）。
+
+    覆盖 CREATED/ROUTING/RUNNING/VALIDATING/FAILED/RETRYING——
+    特别是异常发生在 routing 阶段时，_TRANSITIONS 不允许 ROUTING→FAILED，
+    必须经 RUNNING 再进终态，否则任务永远停在 routing。
+    """
+    if state.status in (TaskStatus.COMPLETED, TaskStatus.FAILED_FINAL):
+        return
+    try:
+        if state.status is TaskStatus.CREATED:
+            state.transition(TaskStatus.ROUTING)
+        if state.status is TaskStatus.ROUTING:
+            state.transition(TaskStatus.RUNNING)
+        if state.status is TaskStatus.RETRYING:
+            state.transition(TaskStatus.FAILED_FINAL)
+            return
+        if state.status in (TaskStatus.RUNNING, TaskStatus.VALIDATING):
+            state.transition(TaskStatus.FAILED)
+        if state.status is TaskStatus.FAILED:
+            state.transition(TaskStatus.FAILED_FINAL)
+    except ValueError:
+        # 并发兄弟步骤可能已推进到终态；保持幂等不抛
+        pass
+
+
 class WorkflowExecutor:
     """波次拓扑执行器：依赖齐备的步骤并行跑，下一波等上一波全部完成。"""
 
@@ -125,10 +211,12 @@ class WorkflowExecutor:
                     timeout=_STEP_TIMEOUT_S,
                 )
                 if result.status != "ok":
-                    error_msg = "; ".join(result.errors) or f"{name} 返回错误"
+                    raw = "; ".join(result.errors) or f"{name} 返回错误"
+                    error_msg = _format_step_error(name, raw, None)
             except Exception as e:  # noqa: BLE001 - 统一进重试/失败分流
                 exc = e
-                error_msg = str(e)
+                # TimeoutError 的 str() 可能为空，必须经 _format_step_error 生成中文文案
+                error_msg = _format_step_error(name, str(e), e)
 
             if error_msg is None:
                 await self._succeed(state, emit, step, steps, done, result, start)
@@ -136,10 +224,11 @@ class WorkflowExecutor:
 
             # 失败：记录错误并决定重试 / 跳过 / 终态失败
             attempt += 1
-            state.errors.append(f"{name}: {error_msg}")
             latency_ms = int((time.perf_counter() - start) * 1000)
+            state.errors.append(error_msg)  # 已含 agent 名
             status = "error" if result is None else result.status
-            code = _error_code(exc) if exc is not None else "ENGINE_ERROR"
+            code = _classify_code(error_msg, exc)
+            reason = _error_reason(error_msg, exc)
             await emit(
                 {
                     "type": "agent_end",
@@ -147,9 +236,12 @@ class WorkflowExecutor:
                     "step": step.id,
                     "latency_ms": latency_ms,
                     "status": status,
+                    "error": error_msg,
+                    "reason": reason,
+                    "detail": {"reason": reason, "error": error_msg},
                 }
             )
-            await emit({"type": "error", "code": code, "message": error_msg})
+            await emit({"type": "error", "code": code, "message": error_msg, "reason": reason})
 
             if attempt <= settings.MAX_RETRY:
                 state.retry_count = attempt
@@ -171,6 +263,9 @@ class WorkflowExecutor:
                 await emit({"type": "step_skipped", "step": step.id, "reason": error_msg})
                 logger.warning("可选步骤失败已跳过 task=%s step=%s: %s", state.task_id, step.id, error_msg)
                 return
+            # 终态错误文案补 latency / 重试次数，供 update_task(error=...) 与前端轮询
+            retry_note = f"已重试 {attempt} 次" if attempt > 1 else "首次执行即失败"
+            state.errors[-1] = f"{error_msg}（{retry_note}，耗时 {latency_ms}ms）"
             self._fail_final(state)
             return
 
@@ -213,11 +308,12 @@ class WorkflowExecutor:
 
     @staticmethod
     def _fail_final(state: TaskState) -> None:
-        """必经步骤重试耗尽：进入 failed_final 终态（并发下幂等）。"""
-        if state.status is TaskStatus.RUNNING:
-            state.transition(TaskStatus.FAILED)
-        if state.status is TaskStatus.FAILED:
-            state.transition(TaskStatus.FAILED_FINAL)
+        """必经步骤重试耗尽：进入 failed_final 终态（并发下幂等）。
+
+        用 force_fail_final 走合法迁移链，避免 routing/validating 阶段
+        非法迁移导致状态卡死。
+        """
+        force_fail_final(state)
 
     async def _finish(self, state: TaskState, emit: EmitFn, t0: float) -> TaskState:
         """写入 final_result、迁移到 completed 并广播 final 事件。"""
@@ -234,17 +330,24 @@ class WorkflowExecutor:
         """匹配链路用 §2.1 匹配形态，否则沿用数据形态（results['data_agent']['final']）。"""
         match = state.results.get("match_agent")
         if isinstance(match, dict) and match:
+            resume = match.get("resume") or {}
+            # experience_years 以 profile 为唯一数据源（match_agent._profile_experience_years 同源写入）；
+            # 顶层与 resume 冗余一致，避免 final_result 与 profile 矛盾
+            experience_years = match.get("experience_years")
+            if experience_years is None:
+                experience_years = resume.get("experience_years")
             return {
                 "task_id": state.task_id,
                 "query": state.query,
                 "engine": "multi_agent",
-                "resume": match.get("resume") or {},
+                "resume": resume,
                 "jobs": match.get("jobs") or [],
                 "score": match.get("score"),
                 "dimensions": match.get("dimensions") or {},
                 "skill_gap": match.get("skill_gap") or [],
                 "interpretation": match.get("interpretation") or "",
                 "interpretation_source": match.get("interpretation_source") or "mock",
+                "experience_years": experience_years,
             }
         data = state.results.get("data_agent") or {}
         final = data.get("final") if isinstance(data, dict) else None
