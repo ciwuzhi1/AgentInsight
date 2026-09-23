@@ -15,6 +15,9 @@ jobs:
           python-version: "3.12"
       - name: Install deps
         run: pip install -r backend/requirements.txt
+      - name: Generate demo data
+        # data/ 不入库；CI 冷启动必须先生成 demo_sales.csv，否则 nl2sql/error 用例缺 fixture
+        run: python scripts/gen_data.py --sales-only
       - name: Unit tests (offline)
         working-directory: backend
         run: python -m pytest tests/unit -q
