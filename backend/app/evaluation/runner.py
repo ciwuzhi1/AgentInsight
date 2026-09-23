@@ -27,7 +27,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.llm import NL2SQL_SYSTEM_PROMPT, get_llm_client
 from app.data_engine.duckdb_engine import duckdb_engine
-from app.evaluation.cases import Case, load_cases
+from app.evaluation.cases import Case, ensure_demo_sales_csv, load_cases
 from app.evaluation.metrics import (
     error_metrics,
     match_metrics,
@@ -75,11 +75,12 @@ def build_registry() -> AgentRegistry:
 
 
 def ensure_eval_dataset() -> None:
-    """注册 demo_sales.csv 为 eval 专用视图（幂等，仅一次）。"""
+    """注册 demo_sales.csv 为 eval 专用视图（幂等，仅一次；缺文件时自动生成）。"""
     global _ensured
     if _ensured:
         return
-    duckdb_engine.register_dataset(EVAL_DATASET_ID, "demo_sales", str(DEMO_CSV))
+    demo_csv = ensure_demo_sales_csv(DEMO_CSV)
+    duckdb_engine.register_dataset(EVAL_DATASET_ID, "demo_sales", str(demo_csv))
     _ensured = True
 
 

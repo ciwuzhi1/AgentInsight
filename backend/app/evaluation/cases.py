@@ -6,8 +6,56 @@
 """
 from __future__ import annotations
 
+import csv
+import random
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
+
+# 与 scripts/gen_data.py 同规格：确定性种子，保证评测/CI 可复现
+_DEMO_SEED = 42
+_DEMO_ROWS = 10000
+_REGIONS = ["华东", "华北", "华南", "西南", "东北"]
+_CATEGORIES = {
+    "电子": ["无线耳机", "智能手环", "蓝牙音箱", "充电宝", "机械键盘"],
+    "家居": ["保温杯", "台灯", "收纳盒", "香薰机"],
+    "服饰": ["卫衣", "运动鞋", "帆布包"],
+    "食品": ["坚果礼盒", "挂耳咖啡", "牛轧糖"],
+}
+_PRODUCTS = [(p, c) for c, ps in _CATEGORIES.items() for p in ps]
+
+
+def default_demo_csv_path() -> Path:
+    """仓库内 demo_sales.csv 默认路径。"""
+    return Path(__file__).resolve().parents[3] / "data" / "demo" / "demo_sales.csv"
+
+
+def ensure_demo_sales_csv(path: str | Path | None = None) -> Path:
+    """确保 demo_sales.csv 存在；缺失时确定性生成 1 万行销售明细。
+
+    data/ 目录默认不入库（可由 scripts/gen_data.py 再生），CI/单测冷启动
+    必须能自举出同一份 fixture，否则 nl2sql / error 用例会因缺文件失败。
+    """
+    p = Path(path) if path is not None else default_demo_csv_path()
+    if p.is_file() and p.stat().st_size > 0:
+        return p
+    p.parent.mkdir(parents=True, exist_ok=True)
+    rng = random.Random(_DEMO_SEED)
+    start = date(2025, 1, 1)
+    with p.open("w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["order_date", "region", "product", "category", "sales", "quantity"])
+        for _ in range(_DEMO_ROWS):
+            prod, cat = rng.choice(_PRODUCTS)
+            w.writerow([
+                (start + timedelta(days=rng.randrange(181))).isoformat(),
+                rng.choice(_REGIONS),
+                prod,
+                cat,
+                round(rng.uniform(50, 5000), 2),
+                rng.randint(1, 20),
+            ])
+    return p
 
 
 @dataclass
@@ -535,11 +583,12 @@ def load_cases(demo_path: str | None = None) -> list[Case]:
     """加载全部 100 case（顺序固定：nl2sql → match → routing → error）。
 
     demo_path：demo_sales.csv 绝对路径，缺省按仓库结构推断（error 用例需要）。
+    文件缺失时自动确定性生成，保证 CI/冷启动可跑。
     """
     if demo_path is None:
-        demo_path = str(
-            Path(__file__).resolve().parents[3] / "data" / "demo" / "demo_sales.csv"
-        )
+        demo_path = str(ensure_demo_sales_csv())
+    else:
+        ensure_demo_sales_csv(demo_path)
     cases = _nl2sql_cases() + _match_cases() + _routing_cases() + _error_cases(demo_path)
     ids = [c.case_id for c in cases]
     assert len(ids) == len(set(ids)) == 100, "case_id 重复或数量异常"

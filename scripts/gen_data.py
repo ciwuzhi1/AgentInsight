@@ -72,6 +72,10 @@ def gen_jd(path: Path, rows: int = 200000) -> None:
 
 
 if __name__ == "__main__":
-    jd_rows = int(sys.argv[1]) if len(sys.argv) > 1 else 200000
+    # --sales-only：只生成评测/demo 用的 demo_sales.csv（CI 单测用，秒级）
+    args = [a for a in sys.argv[1:] if a != "--sales-only"]
+    sales_only = "--sales-only" in sys.argv[1:]
+    jd_rows = int(args[0]) if args else 200000
     gen_sales(REPO / "data" / "demo" / "demo_sales.csv")
-    gen_jd(REPO / "data" / "large" / "jd_large.csv", jd_rows)
+    if not sales_only:
+        gen_jd(REPO / "data" / "large" / "jd_large.csv", jd_rows)
