@@ -4,9 +4,12 @@
 """
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections import defaultdict, deque
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
@@ -72,8 +75,9 @@ class RedisRateLimiter:
             pipe.expire(zkey, int(self.window_s) + 1)
             await pipe.execute()
             return True, 0.0
-        except Exception:
-            return True, 0.0  # Redis 故障降级放行
+        except Exception as exc:
+            logger.warning("RedisRateLimiter 故障降级放行 key=%s: %s", key, exc)
+            return True, 0.0
 
 
 def build_limiters() -> tuple:

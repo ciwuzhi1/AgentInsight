@@ -56,13 +56,20 @@ def _append_env_app_secret(key: str) -> None:
 
 
 def _get_fernet() -> Fernet:
-    """取 Fernet 实例；密钥无效时生成新 key 写回 .env。"""
+    """取 Fernet 实例。
+
+    - 无密钥：首次生成并写回 .env（开发便利）。
+    - 有密钥但非法：直接 raise——禁止静默换钥，否则既有密文永久无法解密。
+    """
     secret = (getattr(settings, "APP_SECRET", "") or "").strip() or _read_env_app_secret()
     if secret:
         try:
             return Fernet(secret.encode())
         except (ValueError, TypeError) as exc:
-            logger.warning("APP_SECRET 不是有效 Fernet key，重新生成: %s", exc)
+            raise ValueError(
+                "APP_SECRET 不是有效 Fernet key，拒绝启动/继续加密操作；"
+                "请修复配置中的 APP_SECRET，不要自动轮换（会导致既有密文无法解密）"
+            ) from exc
     key = Fernet.generate_key().decode()
     _append_env_app_secret(key)
     return Fernet(key.encode())

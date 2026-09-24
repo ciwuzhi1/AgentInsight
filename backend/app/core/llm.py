@@ -266,8 +266,9 @@ def get_llm_client() -> BaseLLMClient:
             from app.core.app_settings import get_setting
 
             fallback = (get_setting("llm_fallback_mock", "auto") or "auto").lower()
-        except Exception:
-            pass
+        except Exception as cfg_exc:
+            logger.warning("读取 llm_fallback_mock 失败，按 auto 降级: %s", cfg_exc)
+            fallback = "auto"
         if fallback == "never":
             raise LLMError("未配置模型")
         logger.warning(

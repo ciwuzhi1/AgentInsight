@@ -16,13 +16,13 @@ EmitFn = Callable[[dict], Awaitable[None]]
 
 
 async def safe_emit(emit: EmitFn | None, event: dict) -> None:
-    """emit 容错：兼容同步/异步 emit，任何异常吞掉（cache 事件不阻断主链路）。"""
+    """emit 容错：兼容同步/异步 emit，异常只记日志不阻断主链路。"""
     try:
         out = emit(event)  # type: ignore[operator]
         if asyncio.iscoroutine(out):
             await out
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("safe_emit 失败 type=%s: %s", event.get("type"), exc)
 
 
 async def get_setting_safe(key: str, default: str) -> str:

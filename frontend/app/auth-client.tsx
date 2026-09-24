@@ -3,8 +3,9 @@
 
 const TOKEN_KEY = "ai_token";
 const USER_KEY = "ai_username";
-const DEFAULT_USER = "agentinsight";
-const DEFAULT_PASS = "agentinsight";
+// 默认演示账密仅从环境变量读取，避免硬编码进源码
+const DEFAULT_USER = process.env.NEXT_PUBLIC_DEMO_USER ?? "";
+const DEFAULT_PASS = process.env.NEXT_PUBLIC_DEMO_PASS ?? "";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8100";
 
@@ -70,6 +71,11 @@ async function doEnsure(): Promise<string | null> {
     // 退避窗口内直接跳过，避免限流雪崩
     if (failBackoffMs > 0 && Date.now() - lastFailAt < failBackoffMs) {
       return getToken();
+    }
+    if (!DEFAULT_USER || !DEFAULT_PASS) {
+      throw new Error(
+        "未配置演示账号（NEXT_PUBLIC_DEMO_USER / NEXT_PUBLIC_DEMO_PASS），无法自动登录"
+      );
     }
     let body = await rawLogin(DEFAULT_USER, DEFAULT_PASS);
     if (!body) {

@@ -131,11 +131,12 @@ async def acquire_lock(key: str, value: str, ttl: int = 300) -> tuple[bool, str 
     """幂等锁 SET NX EX（CONTRACTS3 §1.5）。
 
     返回 (是否获得锁, 已占用者 value)；Redis 不可用/任何异常 →
-    (True, None) 降级放行，业务照常执行。
+    (True, None) 降级放行，业务照常执行（日志 warning 可观测）。
     """
     try:
         client = await get_redis()
         if client is None:
+            logger.warning("Redis 不可用，幂等锁降级放行 key=%s", key)
             return True, None
         ok = await client.set(key, value, nx=True, ex=ttl)
         if ok:
@@ -143,18 +144,35 @@ async def acquire_lock(key: str, value: str, ttl: int = 300) -> tuple[bool, str 
         existing = await client.get(key)
         return False, existing
     except Exception as exc:
-        logger.warning("Redis acquire_lock 降级 key=%s: %s", key, exc)
+        logger.warning("Redis acquire_lock 降级放行 key=%s: %s", key, exc)
         return True, None
 
 
-async def release_lock(key: str) -> bool:
-    """任务终结时 DEL 幂等锁；Redis 不可用静默返回 False。"""
+# Lua：仅当 value 仍是自己的锁时才 DEL，防止 TTL 过期后误删后来者的锁
+_RELEASE_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+else
+  return 0
+end
+"""
+
+
+async def release_lock(key: str, value: str | None = None) -> bool:
+    """任务终结时 DEL 幂等锁；带 value 时用 compare-and-delete。
+
+    value 为 None 时保持旧行为（无条件 DEL），兼容只传 key 的调用方。
+    Redis 不可用静默返回 False。
+    """
     try:
         client = await get_redis()
         if client is None:
             return False
-        await client.delete(key)
-        return True
+        if value is None:
+            await client.delete(key)
+            return True
+        deleted = await client.eval(_RELEASE_LUA, 1, key, value)
+        return bool(deleted)
     except Exception as exc:
         logger.warning("Redis release_lock 降级 key=%s: %s", key, exc)
         return False
