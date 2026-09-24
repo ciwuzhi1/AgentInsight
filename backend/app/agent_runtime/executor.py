@@ -141,13 +141,24 @@ class WorkflowExecutor:
         for wave in waves:
             if state.status is TaskStatus.FAILED_FINAL:
                 break
-            await asyncio.gather(
-                *(self._run_step(state, emit, s, steps, order, done) for s in wave)
+            results = await asyncio.gather(
+                *(self._run_step(state, emit, s, steps, order, done) for s in wave),
+                return_exceptions=True,
             )
+            for r in results:
+                if isinstance(r, BaseException):
+                    # 单步未捕获异常不再打断兄弟协程收尾；记录后由状态机判定终态
+                    logger.exception("步骤协程未捕获异常 task=%s: %s", state.task_id, r)
 
         if state.status is TaskStatus.FAILED_FINAL:
             return state
-        state.transition(TaskStatus.VALIDATING)
+        try:
+            state.transition(TaskStatus.VALIDATING)
+        except ValueError:
+            if state.status in (TaskStatus.COMPLETED, TaskStatus.FAILED_FINAL):
+                logger.warning("VALIDATING 迁移被跳过 task=%s status=%s", state.task_id, state.status)
+                return state
+            raise
         return await self._finish(state, emit, t0)
 
     @staticmethod
@@ -225,6 +236,8 @@ class WorkflowExecutor:
             # 失败：记录错误并决定重试 / 跳过 / 终态失败
             attempt += 1
             latency_ms = int((time.perf_counter() - start) * 1000)
+            # 记住自己的下标：并发兄弟步骤也会 append，不能用 errors[-1] 回写
+            err_idx = len(state.errors)
             state.errors.append(error_msg)  # 已含 agent 名
             status = "error" if result is None else result.status
             code = _classify_code(error_msg, exc)
@@ -265,7 +278,8 @@ class WorkflowExecutor:
                 return
             # 终态错误文案补 latency / 重试次数，供 update_task(error=...) 与前端轮询
             retry_note = f"已重试 {attempt} 次" if attempt > 1 else "首次执行即失败"
-            state.errors[-1] = f"{error_msg}（{retry_note}，耗时 {latency_ms}ms）"
+            if 0 <= err_idx < len(state.errors):
+                state.errors[err_idx] = f"{error_msg}（{retry_note}，耗时 {latency_ms}ms）"
             self._fail_final(state)
             return
 
@@ -320,14 +334,23 @@ class WorkflowExecutor:
         final = self._assemble_final(state)
         if isinstance(final, dict):
             final.setdefault("elapsed_ms", int((time.perf_counter() - t0) * 1000))
+        try:
+            state.transition(TaskStatus.COMPLETED)
+        except ValueError:
+            # 竞态：看门狗/兄弟步骤已 force_fail_final → 保持失败终态，幂等返回
+            if state.status is TaskStatus.FAILED_FINAL:
+                logger.warning("COMPLETED 迁移被跳过 task=%s status=%s", state.task_id, state.status)
+                if state.final_result is None:
+                    state.final_result = final
+                return state
+            raise
         state.final_result = final
-        state.transition(TaskStatus.COMPLETED)
         await emit({"type": "final", "result": final})
         return state
 
     @staticmethod
-    def _assemble_final(state: TaskState) -> dict | None:
-        """匹配链路用 §2.1 匹配形态，否则沿用数据形态（results['data_agent']['final']）。"""
+    def _assemble_final(state: TaskState) -> dict:
+        """匹配链路用 §2.1 匹配形态，否则沿用数据形态；始终返回 dict 保证 final_result 非空。"""
         match = state.results.get("match_agent")
         if isinstance(match, dict) and match:
             resume = match.get("resume") or {}
@@ -352,8 +375,7 @@ class WorkflowExecutor:
         data = state.results.get("data_agent") or {}
         final = data.get("final") if isinstance(data, dict) else None
         if not isinstance(final, dict):
-            final = data or None
-        if isinstance(final, dict):
-            final.setdefault("task_id", state.task_id)
-            final.setdefault("query", state.query)
+            final = dict(data) if isinstance(data, dict) and data else {}
+        final.setdefault("task_id", state.task_id)
+        final.setdefault("query", state.query)
         return final

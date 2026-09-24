@@ -64,6 +64,8 @@ class TaskBus:
                 "task": None,       # asyncio.Task 句柄，防 GC
                 "finished_at": None,  # time.monotonic() 终态时间戳
                 "truncated": False,
+                "base_seq": 0,      # events[0] 的逻辑序号（drop-oldest 后前移）
+                "next_seq": 0,      # 下一个待分配逻辑序号
             }
         return self._tasks[task_id]
 
@@ -98,8 +100,10 @@ class TaskBus:
         async with entry["cond"]:
             events = entry["events"]
             events.append(event)
+            entry["next_seq"] += 1
             while len(events) > _EVENT_CAP:  # drop-oldest
                 events.pop(0)
+                entry["base_seq"] += 1
                 entry["truncated"] = True
             if event.get("type") == "final" or (
                 event.get("type") == "error" and event.get("terminal")
@@ -133,17 +137,30 @@ class TaskBus:
 
     async def subscribe(self, task_id: str) -> AsyncIterator[dict]:
         """先回放既有事件（截断时头部补 {"type":"truncated"}），再等新事件；
-        final / terminal error 终止（非终态 error 如重试中不终止）。"""
+        final / terminal error 终止（非终态 error 如重试中不终止）。
+
+        用逻辑序号游标：drop-oldest 使 events[0] 前移时同步抬 base_seq，
+        订阅者不会因下标错位静默漏事件。
+        """
         entry = self._entry(task_id)
         if entry["truncated"]:
             yield {"type": "truncated"}
-        idx = 0
+        # 已消费到的逻辑序号（下一个要读的）
+        cursor = entry["base_seq"]
         while True:
             async with entry["cond"]:
-                while idx >= len(entry["events"]):
+                while cursor >= entry["next_seq"]:
+                    # 终态且无新事件：不再挂死等待
+                    if entry["finished_at"] is not None:
+                        return
                     await entry["cond"].wait()
-                batch = entry["events"][idx:]
-                idx = len(entry["events"])
+                start = cursor - entry["base_seq"]
+                if start < 0:
+                    # 我们落后于截断点：跳到仍在缓冲区的最旧事件
+                    cursor = entry["base_seq"]
+                    start = 0
+                batch = entry["events"][start:]
+                cursor = entry["next_seq"]
             for event in batch:
                 yield event
                 # 只在 final 或 terminal error 时终止；重试中的 error 不终止
@@ -169,8 +186,9 @@ def _step_seq(task_id: str, step_id: str) -> int:
 
 # ---------- 任务幂等锁（CONTRACTS3 §1.5） ----------
 
-# SET NX EX 300：执行中任务重复提交 → 409 + 既有 task_id
-_LOCK_TTL_S = 300
+# SET NX EX：执行中任务重复提交 → 409 + 既有 task_id。
+# TTL 必须 ≥ supervisor._TASK_TIMEOUT_S(600)，否则长任务中途锁过期会双跑。
+_LOCK_TTL_S = 720
 # task_id -> lock key；_run 终结时统一 DEL（含异常/取消路径）
 _PENDING_LOCKS: dict[str, str] = {}
 
@@ -428,12 +446,38 @@ async def _run(state: TaskState) -> None:
                     state.task_id,
                     persist_exc,
                 )
-        except Exception:
-            pass
+        except Exception as inner_exc:
+            logger.exception("终态兜底路径二次异常 task=%s: %s", state.task_id, inner_exc)
+    except asyncio.CancelledError:
+        # 取消也必须到达终态，避免 status 永停 routing/running
+        logger.warning("任务被取消 task=%s，强制终态", state.task_id)
+        try:
+            force_fail_final(state)
+            if not state.errors:
+                state.errors.append("任务已取消")
+            state.context.setdefault("error_code", "CANCELLED")
+            state.context.setdefault("error_reason", "cancelled")
+            err_msg = _task_error_text(state)
+            await emit(
+                {
+                    "type": "error",
+                    "code": state.context["error_code"],
+                    "message": err_msg,
+                    "reason": state.context["error_reason"],
+                    "terminal": True,
+                }
+            )
+            await asyncio.to_thread(
+                update_task, state.task_id, "failed_final", error=err_msg
+            )
+        except Exception as persist_exc:
+            logger.warning("取消路径终态落库失败 task=%s: %s", state.task_id, persist_exc)
+        raise
     finally:
         # 任务终结（completed/failed_final/异常/取消）统一 DEL 幂等锁
+        # 带上 lock value 做 compare-and-delete，避免误删后来者的锁
         if lock_key:
-            await release_lock(lock_key)
+            await release_lock(lock_key, state.task_id)
 
 
 async def _persist_event(state: TaskState, event: dict) -> None:

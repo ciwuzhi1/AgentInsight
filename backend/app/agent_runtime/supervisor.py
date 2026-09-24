@@ -59,7 +59,15 @@ class Supervisor:
         保证 update_task 能写到 failed_final + 明确 error，而不是永远 routing。
         """
         t0 = time.perf_counter()
-        state.transition(TaskStatus.ROUTING)
+        # 并发重复调用同一 state 时，CREATED→ROUTING 会抛 ValueError；
+        # 这里吞掉并沿用当前状态，让幂等锁/后续阶段去判定，而不是裸崩。
+        try:
+            state.transition(TaskStatus.ROUTING)
+        except ValueError:
+            if state.status in (TaskStatus.COMPLETED, TaskStatus.FAILED_FINAL):
+                logger.warning("run_task 重复调用且已终态 task=%s status=%s", state.task_id, state.status)
+                return state
+            logger.warning("run_task 重复调用 task=%s status=%s，继续当前状态", state.task_id, state.status)
         await emit({"type": "state", "status": "routing", "task_id": state.task_id})
 
         try:
@@ -79,8 +87,18 @@ class Supervisor:
             state.context["error_code"] = "TIMEOUT"
             state.context["error_reason"] = "task_timeout"
             force_fail_final(state)
+            # 超时失败不写 final_result（避免被误认为 completed 结果）
             logger.warning("任务总超时 task=%s: %s", state.task_id, msg)
             return state
+        except asyncio.CancelledError:
+            # 取消也必须到达终态，否则 status 永停 routing/running
+            msg = "任务已取消"
+            state.errors.append(msg)
+            state.context["error_code"] = "CANCELLED"
+            state.context["error_reason"] = "cancelled"
+            force_fail_final(state)
+            logger.warning("任务被取消 task=%s", state.task_id)
+            raise
 
     async def _run_phases(self, state: TaskState, emit: EmitFn, t0: float) -> TaskState:
         """路由 → plan → 执行（不含总超时包装）。"""
@@ -117,7 +135,13 @@ class Supervisor:
                 "elapsed_ms": int((time.perf_counter() - t0) * 1000),
             }
             # clarify 组装视作校验环节，保证迁移链合法
-            state.transition(TaskStatus.VALIDATING)
+            try:
+                state.transition(TaskStatus.VALIDATING)
+            except ValueError:
+                if state.status in (TaskStatus.COMPLETED, TaskStatus.FAILED_FINAL):
+                    logger.warning("clarify VALIDATING 迁移被跳过 task=%s", state.task_id)
+                    return state
+                raise
             return await self._finish(state, emit, final, t0)
 
         await emit(
@@ -156,7 +180,16 @@ class Supervisor:
         """写入 final_result、迁移到 completed 并广播 final 事件。"""
         if isinstance(final, dict):
             final.setdefault("elapsed_ms", int((time.perf_counter() - t0) * 1000))
+        try:
+            state.transition(TaskStatus.COMPLETED)
+        except ValueError:
+            # 竞态：已被 force_fail_final → 幂等返回；重复完成等仍抛
+            if state.status is TaskStatus.FAILED_FINAL:
+                logger.warning("COMPLETED 迁移被跳过 task=%s status=%s", state.task_id, state.status)
+                if state.final_result is None:
+                    state.final_result = final
+                return state
+            raise
         state.final_result = final
-        state.transition(TaskStatus.COMPLETED)
         await emit({"type": "final", "result": final})
         return state

@@ -55,9 +55,8 @@ def test_error_case_graceful(cases):
     """error case graceful：不存在数据集 → failed_final 且 errors 非空；
     破坏性提问（mock 兜底 SELECT）→ completed。全程不崩。
 
-    注：error_006（空 query 无上下文 clarify）因 supervisor.run_task 的
-    clarify 分支存在 ROUTING→VALIDATING 非法迁移 bug（非本模块文件），
-    实际会抛 ValueError，指标如实记为不 graceful，此处不对其断言。
+    error_006（空 query 无上下文 clarify）走 ROUTING→VALIDATING→COMPLETED
+    合法链路，现可断言 completed 且无 error。
     """
     sup = eval_runner.Supervisor(eval_runner.build_registry())
     by_id = {c.case_id: c for c in cases if c.kind == "error"}
@@ -71,6 +70,11 @@ def test_error_case_graceful(cases):
     # 破坏性提问 + 合法数据集：mock 兜底 SELECT → completed，无 error
     row = asyncio.run(eval_runner.run_error_case(by_id["error_002"], sup, eval_runner.make_emit([])))
     assert row["ok"] and row["detail"]["status"] == "completed"
+
+    # 空 query 无上下文 → clarify 短路 completed（覆盖 error_006，防迁移回归）
+    row = asyncio.run(eval_runner.run_error_case(by_id["error_006"], sup, eval_runner.make_emit([])))
+    assert row["detail"]["status"] == "completed", row["detail"]
+    assert row["detail"]["graceful"], row["detail"]
 
 
 def test_match_expect_ranges(cases):

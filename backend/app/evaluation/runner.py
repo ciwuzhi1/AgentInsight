@@ -139,7 +139,9 @@ async def run_nl2sql_case(case: Case) -> dict:
     ok = False
     try:
         schema = duckdb_engine.get_schema(EVAL_DATASET_ID)
-        table = f"ds_{EVAL_DATASET_ID[:8]}"
+        from app.data_engine.duckdb_engine import table_for
+
+        table = table_for(EVAL_DATASET_ID)
         user_prompt = (
             f"表名: {table}\n"
             f"字段:\n{format_schema_for_prompt(schema)}\n"

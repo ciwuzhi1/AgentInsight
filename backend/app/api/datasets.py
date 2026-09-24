@@ -23,8 +23,10 @@ _READ_CHUNK = 1024 * 1024
 
 
 def table_name_for(dataset_id: str) -> str:
-    """DuckDB 视图名约定：ds_{uuid 前 8 位}（与上传文件名一致，可由 id 复原）。"""
-    return f"ds_{dataset_id[:8]}"
+    """DuckDB 视图名：与 duckdb_engine.table_for 同一实现，避免两处漂移。"""
+    from app.data_engine.duckdb_engine import table_for
+
+    return table_for(dataset_id)
 
 
 @router.post("")

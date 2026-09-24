@@ -8,9 +8,10 @@ import asyncio
 import csv
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.api.auth import UserCtx, get_current_user
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.crawler import storage
@@ -133,8 +134,11 @@ async def run(url: str | None, pages: int, max_items: int) -> dict:
 
 
 @router.post("/run")
-async def run_crawler(req: CrawlerRunRequest) -> dict:
-    """抓取岗位并落 MySQL。
+async def run_crawler(
+    req: CrawlerRunRequest,
+    user: UserCtx = Depends(get_current_user),
+) -> dict:
+    """抓取岗位并落 MySQL（需登录；URL 经 SSRF 校验）。
 
     部分失败仍尽量 200（failed_urls 记录原因）；
     listing 整页失败 → 502；MySQL 连接级不可用 → 503（兜底）。
@@ -144,11 +148,14 @@ async def run_crawler(req: CrawlerRunRequest) -> dict:
     except FetchError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except PersistenceError as exc:
-        raise HTTPException(status_code=503, detail=f"MySQL 不可用: {exc}") from exc
+        raise HTTPException(status_code=503, detail="MySQL 不可用") from exc
 
 
 @router.get("/jobs")
-async def get_jobs(limit: int = Query(default=20, ge=1, le=500)) -> dict:
+async def get_jobs(
+    limit: int = Query(default=20, ge=1, le=500),
+    user: UserCtx = Depends(get_current_user),
+) -> dict:
     """列出已入库岗位。"""
     try:
         rows = await asyncio.to_thread(list_jobs, limit)
@@ -182,7 +189,7 @@ async def list_jobs_paginated(
 
 
 @router.post("/export")
-async def export_jobs() -> dict:
+async def export_jobs(user: UserCtx = Depends(get_current_user)) -> dict:
     """导出 jobs 表到 CSV。"""
     try:
         rows = await asyncio.to_thread(fetch_jobs_for_export)

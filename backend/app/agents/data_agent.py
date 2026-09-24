@@ -38,8 +38,8 @@ async def _delete_cache(key: str) -> None:
     """删除缓存键（坏缓存失效）；失败仅告警不阻断。"""
     try:
         await delete_key(key)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("删除坏缓存失败 key=%s: %s", key, exc)
 
 
 def _is_date(v: object) -> bool:
@@ -212,8 +212,8 @@ class DataAgent(BaseAgent):
                             explanation = str(llm_result.get("explanation") or explanation)
                             await emit({"type": "sql", "sql": sql, "explanation": f"重试修正：{explanation}"})
                             continue
-                    except Exception:
-                        pass
+                    except Exception as retry_exc:
+                        logger.warning("SQL 修正 LLM 重试失败，保留原错误 task=%s: %s", state.task_id, retry_exc)
                 raise
         if result is None:
             raise last_err or EngineError("SQL 执行失败")
