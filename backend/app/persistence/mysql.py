@@ -210,25 +210,6 @@ def insert_task_step(
         cur.execute(sql, (task_id, step, agent_name, status, latency_ms, retry_count, _dump(detail)))
 
 
-def insert_agent_run(
-    task_id: str,
-    agent_name: str,
-    model: str | None = None,
-    input_tokens: int | None = None,
-    output_tokens: int | None = None,
-    latency_ms: int | None = None,
-    tool_name: str | None = None,
-    error_type: str | None = None,
-) -> None:
-    """记录一次 LLM/agent 调用观测数据。"""
-    sql = (
-        "INSERT INTO agent_runs (task_id, agent_name, model, input_tokens, output_tokens, "
-        "latency_ms, tool_name, error_type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
-    )
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute(sql, (task_id, agent_name, model, input_tokens, output_tokens, latency_ms, tool_name, error_type))
-
-
 # ---------- jobs（爬虫） ----------
 
 def upsert_job(

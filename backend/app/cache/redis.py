@@ -25,16 +25,43 @@ _COOLDOWN_S = 5.0
 # 单例状态
 _client = None  # redis.asyncio.Redis | None
 _client_lock: asyncio.Lock | None = None
+_client_lock_loop = None  # 锁所绑定的事件循环，用于检测 loop 更换
 _last_fail_ts: float = 0.0
 _fail_count: int = 0
 
 
 def _get_lock() -> asyncio.Lock:
-    """懒初始化 asyncio.Lock（需在事件循环内调用）。"""
-    global _client_lock
-    if _client_lock is None:
+    """懒初始化 asyncio.Lock（需在事件循环内调用）。
+
+    事件循环更换时重建（同进程多次 asyncio.run / 测试多 loop），
+    否则会因锁绑定到已结束的 loop 而抛 "bound to a different event loop"。
+    """
+    global _client_lock, _client_lock_loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if _client_lock is None or _client_lock_loop is not loop:
         _client_lock = asyncio.Lock()
+        _client_lock_loop = loop
     return _client_lock
+
+
+def _is_usable(client) -> bool:
+    """客户端是否仍可用。
+
+    redis.asyncio.Redis **没有** 公开的 is_closed()（只有测试替身 FakeRedis 才有），
+    因此不能直接调用——否则并发下会抛 AttributeError 并让幂等锁降级放行。
+    真实客户端交给连接池自愈（from_url 的 health_check_interval），这里只排除
+    显式标记为已关闭的替身/客户端。
+    """
+    checker = getattr(client, "is_closed", None)
+    if not callable(checker):
+        return True
+    try:
+        return not checker()
+    except Exception:
+        return False
 
 
 async def get_redis():
@@ -47,19 +74,14 @@ async def get_redis():
 
     # 已有连接则直接返回
     if _client is not None:
-        try:
-            # 轻量探活：不每次 ping，用 is_closed 判断
-            if not _client.is_closed():
-                return _client
-        except Exception:
-            pass
-        # 连接已关闭，重置
-        _client = None
+        if _is_usable(_client):
+            return _client
+        _client = None  # 已被关闭，重置后重建
 
     # 懒初始化 + 锁保护，避免并发创建多个连接
     async with _get_lock():
         # double-check
-        if _client is not None and not _client.is_closed():
+        if _client is not None and _is_usable(_client):
             return _client
 
         try:
@@ -74,6 +96,8 @@ async def get_redis():
                 socket_connect_timeout=_CONNECT_TIMEOUT,
                 socket_timeout=_CONNECT_TIMEOUT,
                 decode_responses=True,
+                # 连接池复用连接时自动探活，替代原先不存在的 is_closed 探活
+                health_check_interval=30,
             )
             await client.ping()
             _client = client

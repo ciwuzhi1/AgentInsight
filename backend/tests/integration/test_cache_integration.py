@@ -1,7 +1,7 @@
-"""Cache 集成测试：cache-aside 模式端到端、命中/未命中 LLM 计数、故障降级。
+"""Cache 集成测试：cache-aside 模式端到端、命中/未命中 LLM 计数、故障降级、TTL 与幂等锁。
 
-与 test_cache.py 互补：本文件聚焦 cache-aside 模式的完整生命周期、
-并发场景、TTL 策略正确性。
+覆盖 app/cache/redis.py 的全部对外原语（get_json/set_json/delete_key/get_redis/
+acquire_lock/release_lock）与 TTL 策略，全部离线（FakeRedis）。
 """
 from __future__ import annotations
 
@@ -75,6 +75,8 @@ def reset_redis_module() -> None:
     redis_mod._client = None
     redis_mod._fail_count = 0
     redis_mod._last_fail_ts = 0.0
+    redis_mod._client_lock = None  # 锁绑定事件循环，跨 asyncio.run 必须重建
+    redis_mod._client_lock_loop = None
 
 
 class CountingLLM:
@@ -532,5 +534,156 @@ class TestIdempotencyLock:
                 assert await redis_mod.get_json("cache:broken") is None
 
             asyncio.run(main())
+        finally:
+            reset_redis_module()
+
+
+# ---------- 缓存原语（合并自 test_cache.py 的独有覆盖） ----------
+
+
+class TestCachePrimitives:
+    def test_set_then_get_roundtrip_and_missing_key(self):
+        """set_json 往返可读回、TTL 按策略传递；未写入的 key 返回 None。"""
+        fake = install_fake_redis()
+
+        try:
+            async def main():
+                key = nl2sql_key("ds-1", text_hash("schema"), "总销售额")
+                payload = {"sql": "SELECT 1", "explanation": "第一次生成"}
+                assert await redis_mod.set_json(key, payload, TTL_SCHEMA) is True
+                assert fake.ttls[key] == TTL_SCHEMA
+                assert await redis_mod.get_json(key) == payload
+                assert await redis_mod.get_json("cache:nl2sql:missing") is None
+
+            asyncio.run(main())
+        finally:
+            reset_redis_module()
+
+    def test_primitive_failures_return_degraded_values(self):
+        """get/set/delete 全部抛异常：分别降级为 None / False / False，不向外抛。"""
+        fake = install_fake_redis()
+        fake.fail_get = True
+        fake.fail_set = True
+        fake.fail_delete = True
+
+        try:
+            async def main():
+                assert await redis_mod.get_json("cache:nl2sql:x") is None
+                assert await redis_mod.set_json("cache:nl2sql:x", {"sql": "SELECT 1"}, 60) is False
+                assert await redis_mod.delete_key("cache:nl2sql:x") is False
+
+            asyncio.run(main())
+        finally:
+            reset_redis_module()
+
+    def test_seeded_hit_does_not_call_llm_nor_write(self):
+        """预热命中：直接返回缓存值，LLM 调用 0 次且不回写缓存。"""
+        fake = install_fake_redis()
+        llm = CountingLLM()
+        query = "总销售额是多少"
+        seeded = {"sql": "SELECT SUM(sales) FROM ds_demo LIMIT 1", "explanation": "缓存命中"}
+        fake.store[nl2sql_key("ds-1", text_hash("schema"), query)] = json.dumps(
+            seeded, ensure_ascii=False
+        )
+
+        try:
+            result, state = asyncio.run(
+                _cache_aside_nl2sql("ds-1", text_hash("schema"), query, llm)
+            )
+            assert state == "hit"
+            assert result == seeded
+            assert llm.calls == 0
+            assert fake.get_calls == 1
+            assert fake.set_calls == 0
+        finally:
+            reset_redis_module()
+
+    def test_cooldown_degrades_lock_operations(self):
+        """冷却期内：get_redis 为 None，幂等锁降级为放行/释放失败，不尝试 IO。"""
+        reset_redis_module()
+        redis_mod._fail_count = 1
+        redis_mod._last_fail_ts = time.monotonic()
+
+        try:
+            async def main():
+                assert await redis_mod.get_redis() is None
+                ok, existing = await redis_mod.acquire_lock("lock:k", "v", ttl=60)
+                assert ok is True and existing is None
+                assert await redis_mod.release_lock("lock:k") is False
+
+            asyncio.run(main())
+        finally:
+            reset_redis_module()
+
+
+class _RealLikeRedis:
+    """模拟真实 redis.asyncio.Redis：**没有** is_closed()（只有测试替身才有）。"""
+
+    def __init__(self) -> None:
+        self.pings = 0
+        self.closed = False
+
+    async def ping(self):
+        self.pings += 1
+        return True
+
+    async def aclose(self):
+        self.closed = True
+
+
+class TestGetRedisLiveness:
+    """回归：真实客户端无 is_closed()，旧实现会抛 AttributeError，
+    使幂等锁降级放行（并发重复提交全部成功）并每次重建连接池。"""
+
+    def test_reuses_client_without_is_closed(self):
+        """已缓存的真实客户端应被直接复用，不重建、不抛异常。"""
+        client = _RealLikeRedis()
+        reset_redis_module()
+        redis_mod._client = client
+
+        try:
+            assert asyncio.run(redis_mod.get_redis()) is client
+        finally:
+            reset_redis_module()
+
+    def test_closed_client_is_replaced(self):
+        """替身标记为已关闭时：不复用，重建新连接。"""
+        class _Closed(_RealLikeRedis):
+            def is_closed(self) -> bool:
+                return True
+
+        reset_redis_module()
+        closed = _Closed()
+        redis_mod._client = closed
+
+        async def main():
+            return await redis_mod.get_redis()
+
+        try:
+            # 关键是不复用已关闭的连接：重建成功则是新客户端，重建失败则为 None
+            assert asyncio.run(main()) is not closed
+        finally:
+            reset_redis_module()
+
+    def test_concurrent_get_redis_returns_single_client(self, monkeypatch):
+        """并发调用只创建一个客户端，且不抛 AttributeError（锁 double-check 路径）。"""
+        created: list[_RealLikeRedis] = []
+
+        def _from_url(*_a, **_k):
+            client = _RealLikeRedis()
+            created.append(client)
+            return client
+
+        monkeypatch.setattr("redis.asyncio.from_url", _from_url)
+        reset_redis_module()
+
+        async def main():
+            clients = await asyncio.gather(*[redis_mod.get_redis() for _ in range(8)])
+            assert all(c is clients[0] for c in clients)
+            assert clients[0] is not None
+
+        try:
+            asyncio.run(main())
+            assert len(created) == 1  # 未重复建连
         finally:
             reset_redis_module()

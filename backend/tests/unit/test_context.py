@@ -61,7 +61,7 @@ class TestTokenBudgetTruncate:
 
 
 class TestCompressResume:
-    def test_keeps_key_fields_only(self):
+    def test_compress_resume_keeps_key_fields_only(self):
         profile = {
             "skills": ["Python", "SQL"],
             "projects": ["招聘数据分析平台"],
@@ -101,7 +101,7 @@ class TestCompressResume:
 
 
 class TestCompressJob:
-    def test_keeps_key_fields_only(self):
+    def test_compress_job_keeps_key_fields_only(self):
         job = {
             "title": "数据分析师",
             "must_have": ["SQL", "Python"],

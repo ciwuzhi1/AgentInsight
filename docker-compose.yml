@@ -26,6 +26,10 @@ services:
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redis_data:/data
+    ports:
+      # 本机开发时后端跑在宿主机上（.env 的 REDIS_URL=redis://127.0.0.1:6379/0），
+      # 必须把端口映射出来；compose 内部调用走服务名 redis:6379 不受影响
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

@@ -218,7 +218,7 @@ def test_match_workflow_end_to_end():
 # ---------- 动态路由：简单 vs 复杂 ----------
 
 
-def test_simple_query_skips_validator():
+def test_simple_query_skips_validator_with_mock_agents():
     """简单问题（短句+聚合词）计划只有 data，执行时无 validator。"""
     query = "总销售额是多少"
     steps = build_data_plan(query)
@@ -257,7 +257,7 @@ def test_simple_query_skips_validator():
     assert result_state.final_result["row_count"] == 1
 
 
-def test_complex_query_includes_all_steps():
+def test_complex_query_includes_all_steps_with_mock_agents():
     """复杂问题（对比/分布/趋势）计划含 data+validator+report，全部执行。"""
     query = "对比各地区销售额分布趋势"
     steps = build_data_plan(query)

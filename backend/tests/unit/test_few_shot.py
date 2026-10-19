@@ -1,8 +1,6 @@
 """Few-shot 检索单测。历史库是进程内全局状态，每个用例先重置。"""
 import json
 
-import pytest
-
 from app.agents import few_shot
 from app.agents.few_shot import (
     add_to_history,

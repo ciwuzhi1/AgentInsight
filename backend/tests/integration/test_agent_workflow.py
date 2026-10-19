@@ -257,7 +257,7 @@ class TestMatchWorkflow:
 
 
 class TestDynamicRouting:
-    def test_simple_query_skips_validator(self):
+    def test_simple_query_skips_validator_with_real_agents(self):
         """简单问题计划只有 data，validator 不被调用。"""
         query = "总销售额是多少"
         steps = build_data_plan(query)
@@ -282,7 +282,7 @@ class TestDynamicRouting:
         assert validator.calls == 0
         assert len(result_state.messages) == 1  # 只有 data_agent 的消息
 
-    def test_complex_query_includes_all_steps(self):
+    def test_complex_query_includes_all_steps_with_real_agents(self):
         """复杂问题计划含 data+validator+report，全部执行。"""
         query = "对比各地区销售额分布趋势"
         steps = build_data_plan(query)

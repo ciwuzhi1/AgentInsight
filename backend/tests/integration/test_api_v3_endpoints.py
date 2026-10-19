@@ -1,36 +1,10 @@
 """V3.0 增补接口集成测试：DELETE /api/datasets、GET /api/jobs、GET /api/health/duckdb。
 
 同时回归校验既有 GET /api/tasks/{id}/export 与 GET /api/resumes/{id}。
-用 TestClient + monkeypatch 隔离 MySQL / DuckDB / 文件系统。
+用 TestClient + monkeypatch 隔离 MySQL / DuckDB / 文件系统；
+`client` / `auth_headers` 夹具见 tests/integration/conftest.py。
 """
 from __future__ import annotations
-
-import pytest
-from fastapi.testclient import TestClient
-
-from app.core.security import create_token
-
-
-@pytest.fixture
-def auth_headers() -> dict:
-    token = create_token("user-v3", "v3-user")
-    return {"Authorization": f"Bearer {token}"}
-
-
-@pytest.fixture
-def client(monkeypatch):
-    monkeypatch.setattr("app.persistence.migrations.run_migrations", lambda: [])
-
-    async def _noop(*_a, **_k):
-        return 0
-
-    monkeypatch.setattr("app.cache.redis.cleanup_stale_locks", _noop)
-    monkeypatch.setattr("app.cache.redis.close_redis", _noop)
-
-    from app.main import app
-
-    with TestClient(app) as c:
-        yield c
 
 
 # ---------- DELETE /api/datasets/{id} ----------
@@ -205,9 +179,11 @@ def test_task_export_csv_and_json(client, auth_headers, monkeypatch):
     assert resp.status_code == 200
     assert "text/csv" in resp.headers["content-type"]
     assert "attachment" in resp.headers["content-disposition"]
-    lines = resp.text.strip().splitlines()
-    assert lines[0].startswith("x")  # utf-8-sig BOM then header
-    assert "y" in lines[0]
+    # 导出为 utf-8-sig（BOM 供 Excel 识别），故按 utf-8-sig 解码，BOM 不会残留
+    lines = resp.content.decode("utf-8-sig").strip().splitlines()
+    assert lines[0] == "x,y"
+    assert lines[1] == "1,a"
+    assert lines[2] == "2,b"
 
     resp = client.get("/api/tasks/t1/export?format=json", headers=auth_headers)
     assert resp.status_code == 200

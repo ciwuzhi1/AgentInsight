@@ -4,11 +4,8 @@
 """
 import asyncio
 
-import pytest
-
 from app.agent_runtime.message import make_message
 from app.agent_runtime.state import TaskState
-from app.agents import match_agent as match_mod
 from app.agents.match_agent import MatchAgent, compute_match, normalize_skill
 
 _WEIGHTS = {"skill": 0.5, "project": 0.2, "experience": 0.1, "education": 0.1, "engineering": 0.1}

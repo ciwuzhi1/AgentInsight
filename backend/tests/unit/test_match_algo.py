@@ -55,7 +55,7 @@ class TestTfidfWeights:
         # 稀有技能 IDF 更高，权重应该更大
         assert jd_weights["rust"] > jd_weights["python"]
 
-    def test_empty_jobs(self):
+    def test_empty_jobs_yield_empty_weights(self):
         """无 JD 时返回空权重。"""
         jd_weights, resume_weights = compute_tfidf_weights([], ["python"])
         assert jd_weights == {}
@@ -97,7 +97,7 @@ class TestSkillMatchScore:
         score, _ = skill_match_score([], [["python"]])
         assert score == 0.0
 
-    def test_empty_jobs(self):
+    def test_empty_jobs_score_full_marks(self):
         """空 JD 得满分。"""
         score, _ = skill_match_score(["python"], [])
         assert score == 100.0

@@ -9,7 +9,6 @@ CONTRACTS3 §1.4：最外层 cache-aside——所有 JD 的 title+description �
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 

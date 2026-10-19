@@ -2,8 +2,6 @@
 
 choose_engine(profile)：rows_estimate >= settings.MAX_ROWS_THRESHOLD → "too_large"，否则 "duckdb"。
 """
-import pytest
-
 from app.core.config import settings
 from app.data_engine.profiler import DatasetProfile
 from app.data_engine.router import choose_engine

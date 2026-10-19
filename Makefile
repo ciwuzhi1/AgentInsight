@@ -17,8 +17,8 @@ down:           ## 停止并移除容器
 logs:           ## 跟踪全部服务日志
 	docker compose logs -f
 
-test:           ## 单元测试（离线）
-	cd backend && python -m pytest tests/unit -q
+test:           ## 全部测试：单测 + 集成（离线）
+	cd backend && python -m pytest tests -q
 
 lint:           ## 前端 TypeScript 类型检查
 	cd frontend && npx tsc --noEmit

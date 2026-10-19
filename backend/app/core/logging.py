@@ -1,9 +1,9 @@
-"""企业级结构化日志：JSON 行日志 + request_id/task_id 上下文（contextvars）。
+"""企业级结构化日志：JSON 行日志 + request_id 上下文（contextvars）。
 
 用法不变：`from app.core.logging import get_logger`；
-上下文注入：中间件调 set_request_id()，任务执行调 set_task_id()；
+上下文注入：中间件调 set_request_id()；
 业务附加字段：logger.info("msg", extra={"extra": {"key": v}})
-每条日志输出单行 JSON：{"ts","level","logger","msg","request_id","task_id",...}
+每条日志输出单行 JSON：{"ts","level","logger","msg","request_id",...}
 """
 from __future__ import annotations
 
@@ -15,11 +15,10 @@ from datetime import datetime
 
 _CONFIGURED = False
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
-task_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("task_id", default="")
 
 
 class _JsonFormatter(logging.Formatter):
-    """将日志记录格式化为单行 JSON（含 request_id / task_id 上下文）。"""
+    """将日志记录格式化为单行 JSON（含 request_id 上下文）。"""
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict = {
@@ -29,9 +28,6 @@ class _JsonFormatter(logging.Formatter):
             "msg": record.getMessage(),
             "request_id": request_id_var.get(),
         }
-        tid = task_id_var.get()
-        if tid:
-            payload["task_id"] = tid
         extra = getattr(record, "extra", None)
         if isinstance(extra, dict):
             for k, v in extra.items():
@@ -49,11 +45,6 @@ def set_request_id(value: str) -> None:
 def get_request_id() -> str:
     """读取当前请求的 request_id；未设置时返回 "-"。"""
     return request_id_var.get()
-
-
-def set_task_id(value: str) -> None:
-    """设置当前任务的 task_id（contextvar，供日志自动注入）。"""
-    task_id_var.set(value)
 
 
 def _ensure_root_configured() -> None:

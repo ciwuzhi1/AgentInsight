@@ -66,10 +66,3 @@ def run_migrations() -> list[str]:
             )
             logger.info("migration v%s 已应用: %s", version, desc)
     return applied
-
-
-def current_version() -> int:
-    """返回已应用的最高迁移版本号；无记录时为 0。"""
-    with get_connection() as conn, conn.cursor() as cur:
-        cur.execute("SELECT COALESCE(MAX(version), 0) AS v FROM schema_migrations")
-        return int(cur.fetchone()["v"])

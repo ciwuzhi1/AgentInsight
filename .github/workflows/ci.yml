@@ -18,9 +18,11 @@ jobs:
       - name: Generate demo data
         # data/ 不入库；CI 冷启动必须先生成 demo_sales.csv，否则 nl2sql/error 用例缺 fixture
         run: python scripts/gen_data.py --sales-only
-      - name: Unit tests (offline)
+      - name: Tests (unit + integration, offline)
+        # 集成测试同样不依赖 MySQL / Redis / 网络（FakeRedis + monkeypatch）；
+        # 依赖 MySQL 的少数用例自带 skipif，CI 中自动跳过
         working-directory: backend
-        run: python -m pytest tests/unit -q
+        run: python -m pytest tests -q
 
   frontend:
     runs-on: ubuntu-latest
@@ -35,3 +37,7 @@ jobs:
       - name: Type check
         working-directory: frontend
         run: npx tsc --noEmit
+      - name: Build
+        # 类型检查通过不代表构建通过（App Router 预渲染/依赖解析都会挂）
+        working-directory: frontend
+        run: npm run build

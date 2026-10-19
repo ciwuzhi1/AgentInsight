@@ -113,7 +113,7 @@ POST /api/matches {resume_id, job_ids}
 并行落地证据：task_steps 表中 resume/job 两步 running→ok 交错记录。
 ```
 
-trace 双路落库机制不变：emit 同一回调 → ①TaskBus（SSE 回放，晚连接也能看全时间线）②`_persist_event`→MySQL（tasks/task_steps/agent_runs）。落库失败仅 warning。
+trace 双路落库机制不变：emit 同一回调 → ①TaskBus（SSE 回放，晚连接也能看全时间线）②`_persist_event`→MySQL（tasks / task_steps）。落库失败仅 warning。
 
 ## 4. Context Engineering（V3.0 新增）
 

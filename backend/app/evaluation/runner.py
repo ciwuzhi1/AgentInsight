@@ -28,13 +28,7 @@ from app.core.logging import get_logger
 from app.core.llm import NL2SQL_SYSTEM_PROMPT, get_llm_client
 from app.data_engine.duckdb_engine import duckdb_engine
 from app.evaluation.cases import Case, ensure_demo_sales_csv, load_cases
-from app.evaluation.metrics import (
-    error_metrics,
-    match_metrics,
-    routing_metrics,
-    sql_metrics,
-    summarize,
-)
+from app.evaluation.metrics import summarize
 from app.tools.schema_tool import format_schema_for_prompt
 from app.tools.sql_tool import guard
 
