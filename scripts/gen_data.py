@@ -24,6 +24,8 @@ PRODUCTS = [(p, c) for c, ps in CATEGORIES.items() for p in ps]
 
 def gen_sales(path: Path, rows: int = 10000) -> None:
     start = date(2025, 1, 1)
+    # data/ 不入库，干净检出（如 CI）下父目录不存在，需自建
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["order_date", "region", "product", "category", "sales", "quantity"])
@@ -54,6 +56,7 @@ CITIES = ["北京", "上海", "深圳", "杭州", "成都", "广州"]
 
 
 def gen_jd(path: Path, rows: int = 200000) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["job_id", "title", "company", "city", "salary_k", "skills", "posted_date"])
